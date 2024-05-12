@@ -1,15 +1,20 @@
-import discord, asyncio, datetime, pytz
+import discord
+import asyncio
+from datetime import datetime, timedelta
+import pytz
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
 intents = discord.Intents.default()
 intents.messages = True  # 메시지를 읽고 반응하도록
 intents.message_content = True  # 메시지 내용에 접근
+intents.guilds = True  # 채널
+intents.voice_states = True #음성 상태 정보 갱신
 
 client = discord.Client(intents = intents)
 
 @client.event
 async def on_ready() : # 봇이 실행되면 한 번 실행함
-    print("터미널에서 실행됨")
+    print("터미널에서 실행됨") 
     await client.change_presence(status=discord.Status.online, activity=discord.Game("봇의 상태메시지"))
 
 @client.event
@@ -38,8 +43,18 @@ async def on_message(message):
         ch = client.get_channel(1238896271939338282)
         await ch.send("{} | {}님, 오늘 휴가신청이 완료되었습니다! 재충전하고 내일 만나요☀️".format(message.author, message.author.mention))
 
+@client.event
+async def on_voice_state_update(member, before, after):
+    ch = client.get_channel(1239098139361808429)
+    # if not before.channel and after.channel:  # 채널 입장 시 [공부기록] 채널에 알림
+    #    await ch.send(f"{member}님이 [{after.channel}] 채널에 입장했습니다.")
+    # elif before.channel and not after.channel:  # 채널 퇴장 시 [공부기록] 채널에 알림
+    #    await ch.send(f"{member}님이 [{before.channel}] 채널을 떠났습니다.")
 
-
+    if before.self_video is False and after.self_video is True:
+        await ch.send(f"{member.display_name}님 공부 시작!✏️")  # 카메라 on
+    elif before.self_video is True and after.self_video is False:
+        await ch.send(f"{member.display_name}님 00분 누적 완료!👍")  # 카메라 off
 
 # 봇을 실행시키기 위한 토큰 작성하는 부분
 client.run('MTIzODg4MTY1ODMzODU0MTU3OA.G7Wkj9.P0PmbdQf7MmyTIjdJSfX4JOExa8U-E51-fMCh0')
