@@ -21,7 +21,29 @@ def create_db_connection():
         print(f"'{e}' 에러 발생")
         return None
 
-
+# 멤버 정보를 데이터베이스에 저장
+def insert_member_data(member):
+    connection = create_db_connection()
+    if connection is not None:
+        cursor = connection.cursor()
+        join_date = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        query = """
+        INSERT INTO member (member_nickname, member_username, member_join_date)
+        VALUES (%s, %s, %s)
+        """
+        values = (member.display_name, str(member), join_date)
+        
+        try:
+            cursor.execute(query, values)
+            connection.commit()
+            print("멤버 등록 성공")
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
 intents = discord.Intents.default()
@@ -39,7 +61,11 @@ async def on_ready() : # 봇이 실행되면 한 번 실행함
     print("터미널에서 실행됨") 
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
 
- 
+# 멤버 새로 참여 시 데이터베이스에 추가
+@client.event
+async def on_member_join(member):
+    print(f'{member.display_name} has joined the server')
+    insert_member_data(member)  
 
 # 공지
 @client.event
