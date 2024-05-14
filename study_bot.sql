@@ -1,3 +1,10 @@
+-- 데이터베이스를 UTF-8로 설정
+ALTER DATABASE study_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- 기존 테이블을 UTF-8로 변경
+ALTER TABLE member CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+
 -- 멤버 기본정보
 CREATE TABLE member (
     member_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -75,3 +82,5 @@ CREATE TABLE churn_prediction (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+
+
