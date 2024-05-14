@@ -24,31 +24,40 @@ def create_db_connection():
 # 멤버 정보 & 멤버십 기간 등록
 def insert_member_and_period(member):
     connection = create_db_connection()
+
     if connection:
-        cursor = connection.cursor()
-
-        try:
-            join_date = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        cursor = connection.cursor(buffered=True)  # buffered=True 추가 : 쿼리문 처리가 끝나기 전에 다음 쿼리문이 실행되는 문제 수정
         
-            # 멤버 정보 삽입
-            member_insert_query = """
-            INSERT INTO member (member_nickname, member_username, member_join_date)
-            VALUES (%s, %s, %s)
-            """
-            member_values = (member.display_name, str(member), join_date)
-            cursor.execute(member_insert_query, member_values)
-            member_id = cursor.lastrowid  # 새로 생성된 멤버의 ID를 가져옴
-                    
-            # 멤버십 기간 정보 삽입
-            period_insert_query = """
-            INSERT INTO membership_period (member_id, period_start_date, period_now_active)
-            VALUES (%s, %s, %s)
-            """
-            period_values = (member_id, join_date, 1)
-            cursor.execute(period_insert_query, period_values)
+        try:
+            # 멤버 정보가 이미 존재하는지 확인
+            cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
+            result = cursor.fetchone()
+            if result:
+                member_id = result[0]
+                print(f"[{member.display_name}] 해당 멤버가 이미 등록되어 있습니다. [ID : {member_id}]")
+                # 기존 멤버가 있으면 membership_period 테이블에 새로운 기간을 등록
+                cursor.execute(
+                    "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
+                    (member_id, datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d'), 1)
+                )
 
+            else:
+                # 멤버 정보 삽입
+                join_date = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute(
+                    "INSERT INTO member (member_nickname, member_username, member_join_date) VALUES (%s, %s, %s)",
+                    (member.display_name, str(member), join_date)
+                )
+                member_id = cursor.lastrowid
+                print(f"새로운 멤버 [{member.display_name}]가 등록되었습니다. [ID : {member_id}]")
+
+                # 새 멤버 등록 후 membership_period 테이블에 기간 등록
+                cursor.execute(
+                    "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
+                    (member_id, datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d'), 1)
+                )
             connection.commit()
-            print("멤버 등록 및 멤버십 기간 정보 등록 완료")
+            print(f"[{member.display_name}] 해당 멤버의 멤버십이 시작되었습니다.")
 
         except Error as e:
             print(f"'{e}' 에러 발생")
