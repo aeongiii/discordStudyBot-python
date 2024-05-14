@@ -21,24 +21,39 @@ def create_db_connection():
         print(f"'{e}' 에러 발생")
         return None
 
-# 멤버 정보를 데이터베이스에 저장
-def insert_member_data(member):
+# 멤버 정보 & 멤버십 기간 등록
+def insert_member_and_period(member):
     connection = create_db_connection()
-    if connection is not None:
+    if connection:
         cursor = connection.cursor()
-        join_date = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
-        query = """
-        INSERT INTO member (member_nickname, member_username, member_join_date)
-        VALUES (%s, %s, %s)
-        """
-        values = (member.display_name, str(member), join_date)
-        
+
         try:
-            cursor.execute(query, values)
+            join_date = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        
+            # 멤버 정보 삽입
+            member_insert_query = """
+            INSERT INTO member (member_nickname, member_username, member_join_date)
+            VALUES (%s, %s, %s)
+            """
+            member_values = (member.display_name, str(member), join_date)
+            cursor.execute(member_insert_query, member_values)
+            member_id = cursor.lastrowid  # 새로 생성된 멤버의 ID를 가져옴
+                    
+            # 멤버십 기간 정보 삽입
+            period_insert_query = """
+            INSERT INTO membership_period (member_id, period_start_date, period_now_active)
+            VALUES (%s, %s, %s)
+            """
+            period_values = (member_id, join_date, 1)
+            cursor.execute(period_insert_query, period_values)
+
             connection.commit()
-            print("멤버 등록 성공")
+            print("멤버 등록 및 멤버십 기간 정보 등록 완료")
+
         except Error as e:
             print(f"'{e}' 에러 발생")
+            connection.rollback()
+
         finally:
             cursor.close()
             connection.close()
@@ -61,11 +76,11 @@ async def on_ready() : # 봇이 실행되면 한 번 실행함
     print("터미널에서 실행됨") 
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
 
-# 멤버 새로 참여 시 데이터베이스에 추가
+# 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가
 @client.event
 async def on_member_join(member):
     print(f'{member.display_name} has joined the server')
-    insert_member_data(member)  
+    insert_member_and_period(member)  
 
 # 공지
 @client.event
