@@ -15,7 +15,7 @@ client = discord.Client(intents = intents)
 @client.event
 async def on_ready() : # 봇이 실행되면 한 번 실행함
     print("터미널에서 실행됨") 
-    await client.change_presence(status=discord.Status.online, activity=discord.Game("봇의 상태메시지"))
+    await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
 
 @client.event
 async def on_message(message):
