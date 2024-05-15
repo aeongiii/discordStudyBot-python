@@ -1,10 +1,10 @@
-import discord 
+import discord
 from discord.ext import commands
 import asyncio
 import mysql.connector
 from mysql.connector import Error
 from datetime import datetime, timedelta
-import pytz 
+import pytz
 
 # 데이터베이스 연결 설정
 def create_db_connection():
@@ -69,6 +69,84 @@ def insert_member_and_period(member):
     else:
         print("DB 연결 실패")
 
+# 공부 세션 시작 정보 저장
+def start_study_session(member_id, period_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        start_time = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        
+        try:
+            cursor.execute(
+                "INSERT INTO study_session (member_id, period_id, session_start_time, session_end_time, session_duration) VALUES (%s, %s, %s, %s, %s)",
+                (member_id, period_id, start_time, None, 0)
+            )
+            connection.commit()
+            print(f"공부 세션 시작: 멤버 ID {member_id}, 시작 시간 {start_time}")
+
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+        
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+# 공부 세션 종료 정보 업데이트
+def end_study_session(member_id, period_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        end_time = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        
+        try:
+            # 시작 시간 가져오기
+            cursor.execute(
+                "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
+                (member_id, period_id)
+            )
+            start_time = cursor.fetchone()[0]
+            
+            # 기간 계산
+            start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            duration = int((end_dt - start_dt).total_seconds() // 60)
+            
+            # 종료 시간 및 기간 업데이트
+            cursor.execute(
+                "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
+                (end_time, duration, member_id, period_id)
+            )
+
+            # activity_log 테이블의 log_study_time에 공부시간 누적
+            cursor.execute(
+                "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_study_time = log_study_time + %s",
+                (member_id, period_id, datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d'), duration, duration)
+            )
+            connection.commit()
+
+            # 최근 공부 시간 가져오기
+            cursor.execute(
+                "SELECT session_duration FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
+                (member_id, period_id)
+            )
+            recent_study_time = cursor.fetchone()[0]
+            print(f"{member_id} 멤버의 최근 공부 시간: {recent_study_time}분")
+
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+        
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
 intents = discord.Intents.default()
 intents.messages = True  # 메시지를 읽고 반응하도록
@@ -88,7 +166,7 @@ async def on_ready() : # 봇이 실행되면 한 번 실행함
 # 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가
 @client.event
 async def on_member_join(member):
-    print(f'{member.display_name} has joined the server')
+    print(f'[{member.display_name}]님이 서버에 참여했습니다.')
     insert_member_and_period(member)  
 
 # 공지
@@ -119,20 +197,52 @@ async def on_message(message):
         ch = client.get_channel(1238896271939338282)
         await ch.send("{} | {}님, 오늘 휴가신청이 완료되었습니다! 재충전하고 내일 만나요☀️".format(message.author, message.author.mention))
 
-# 카메라 on, off시 안내 메시지
 @client.event
 async def on_voice_state_update(member, before, after):
     ch = client.get_channel(1239098139361808429)
 
-    # if not before.channel and after.channel:  # 채널 입장 시 [공부기록] 채널에 알림
-    #    await ch.send(f"{member}님이 [{after.channel}] 채널에 입장했습니다.")
-    # elif before.channel and not after.channel:  # 채널 퇴장 시 [공부기록] 채널에 알림
-    #    await ch.send(f"{member}님이 [{before.channel}] 채널을 떠났습니다.")
+    # 멤버 정보와 활동 기간 ID 가져오기
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)  # 버퍼링 된 커서 사용
 
-    if before.self_video is False and after.self_video is True:
-        await ch.send(f"{member.display_name}님 공부 시작!✏️")  # 카메라 on
-    elif before.self_video is True and after.self_video is False:
-        await ch.send(f"{member.display_name}님 00분 누적 완료!👍")  # 카메라 off
+        try:
+            # 멤버 정보 가져오기
+            cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
+            result = cursor.fetchone()
+            if result:
+                member_id = result[0]
+            else:
+                cursor.close()
+                connection.close()
+                return  # 멤버 정보가 없으면 함수 종료
+
+            # 활동 기간 ID 가져오기
+            cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+            result = cursor.fetchone()
+            if result:
+                period_id = result[0]
+            else:
+                cursor.close()
+                connection.close()
+                return  # 활동 기간 정보가 없으면 함수 종료
+
+            cursor.close()
+            connection.close()
+
+            if before.self_video is False and after.self_video is True:
+                await ch.send(f"{member.display_name}님 공부 시작!✏️")  # 카메라 on
+                start_study_session(member_id, period_id)
+            elif before.self_video is True and after.self_video is False:
+                await ch.send(f"{member.display_name}님 공부 종료!👍")  # 카메라 off
+                end_study_session(member_id, period_id)
+        
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
 
 # 봇을 실행시키기 위한 토큰 작성하는 부분
 client.run('MTIzODg4MTY1ODMzODU0MTU3OA.G7Wkj9.P0PmbdQf7MmyTIjdJSfX4JOExa8U-E51-fMCh0')
