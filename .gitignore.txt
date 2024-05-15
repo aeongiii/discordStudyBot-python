@@ -1,0 +1,50 @@
+# .gitignore 파일 내용
+# Windows 관련 파일디렉토리 무시
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN
+.cab
+.msi
+.msm
+.msp
+.lnk
+
+# User-specific files
+.DS_Store
+.log
+.bak
+.swp
+.idea
+.vscode
+.history
+.pytest_cache
+.mypy_cache
+
+# Python specific
+__pycache__
+.py[cod]
+.pyc
+.venv
+venv
+
+# Environment variables
+.env
+
+# Byte-compiled  optimized  DLL files
+__pycache__
+.py[cod]
+.pyo
+.pyd
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# macOS
+.DS_Store
+
+# MySQL Workbench
+.mysqlworkbench
+
+# 기타 무시할 파일디렉토리 추가
+CUsersYeeun Kim
