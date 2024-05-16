@@ -38,12 +38,12 @@ def insert_member_and_period(member):
                 # 기존 멤버가 있으면 membership_period 테이블에 새로운 기간을 등록
                 cursor.execute(
                     "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
-                    (member_id, datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d'), 1)
+                    (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), 1)
                 )
 
             else:
                 # 멤버 정보 삽입
-                join_date = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+                join_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
                 cursor.execute(
                     "INSERT INTO member (member_nickname, member_username, member_join_date) VALUES (%s, %s, %s)",
                     (member.display_name, str(member), join_date)
@@ -54,7 +54,7 @@ def insert_member_and_period(member):
                 # 새 멤버 등록 후 membership_period 테이블에 기간 등록
                 cursor.execute(
                     "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
-                    (member_id, datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d'), 1)
+                    (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), 1)
                 )
             connection.commit()
             print(f"[{member.display_name}] 해당 멤버의 멤버십이 시작되었습니다.")
@@ -74,12 +74,12 @@ def start_study_session(member_id, period_id):
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
-        start_time = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        start_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
         
         try:
             cursor.execute(
-                "INSERT INTO study_session (member_id, period_id, session_start_time, session_end_time, session_duration) VALUES (%s, %s, %s, %s, %s)",
-                (member_id, period_id, start_time, None, 0)
+                "INSERT INTO study_session (member_id, period_id, session_start_time, session_end_time) VALUES (%s, %s, %s, %s)",
+                (member_id, period_id, start_time, None)
             )
             connection.commit()
             print(f"공부 세션 시작: 멤버 ID {member_id}, 시작 시간 {start_time}")
@@ -100,7 +100,7 @@ def end_study_session(member_id, period_id):
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
-        end_time = datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d %H:%M:%S')
+        end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
         
         try:
             # 시작 시간 가져오기
@@ -109,9 +109,13 @@ def end_study_session(member_id, period_id):
                 (member_id, period_id)
             )
             start_time = cursor.fetchone()[0]
+
+            # 시작 시간이 datetime 객체가 아닌 경우 문자열로 변환
+            if isinstance(start_time, str):
+                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            else:
+                start_dt = start_time
             
-            # 기간 계산
-            start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
             end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             duration = int((end_dt - start_dt).total_seconds() // 60)
             
@@ -120,31 +124,31 @@ def end_study_session(member_id, period_id):
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
                 (end_time, duration, member_id, period_id)
             )
-
-            # activity_log 테이블의 log_study_time에 공부시간 누적
-            cursor.execute(
-                "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_study_time = log_study_time + %s",
-                (member_id, period_id, datetime.now(pytz.timezone('UTC')).strftime('%Y-%m-%d'), duration, duration)
-            )
             connection.commit()
 
-            # 최근 공부 시간 가져오기
-            cursor.execute(
-                "SELECT session_duration FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
-                (member_id, period_id)
-            )
-            recent_study_time = cursor.fetchone()[0]
-            print(f"{member_id} 멤버의 최근 공부 시간: {recent_study_time}분")
+            # 공부 시간이 5분 이상인 경우에만 activity_log 테이블의 log_study_time에 공부시간 누적
+            if duration >= 5:
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_study_time = log_study_time + %s",
+                    (member_id, period_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), duration, duration)
+                )
+                print(f"{member_id} 멤버의 최근 공부 시간: {duration}분")
+            else:
+                print(f"{member_id} 멤버의 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
+            
+            connection.commit()
 
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-        
+
         finally:
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
+
+
 
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
@@ -181,7 +185,7 @@ async def on_message(message):
 
         # 임베드하여 공지글 출력하기
         embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description="{}님, 환영합니다!\n".format(message.author, message.author.mention), 
-                              timestamp=datetime.now(pytz.timezone('UTC')), color=0x75c3c5)
+                              timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
         embed.add_field(name = "📚 공부는 어떻게 시작하나요?", value= "[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
         embed.add_field(name = "⏰매일 5분 이상 공부해야 해요!", value= "이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
         embed.add_field(name = "✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value= "아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
@@ -213,7 +217,7 @@ async def on_voice_state_update(member, before, after):
             if result:
                 member_id = result[0]
             else:
-                cursor.close()
+                cursor.close() 
                 connection.close()
                 return  # 멤버 정보가 없으면 함수 종료
 

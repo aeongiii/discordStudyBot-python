@@ -1,8 +1,9 @@
 -- 데이터베이스를 UTF-8로 설정
 ALTER DATABASE study_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
 -- 기존 테이블을 UTF-8로 변경
 ALTER TABLE member CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+
 
 -- 멤버 기본정보
 CREATE TABLE member (
@@ -11,6 +12,12 @@ CREATE TABLE member (
     member_username VARCHAR(255) NOT NULL,
     member_join_date DATE NOT NULL
 );
+-- 이후에 컬럼 수정
+ALTER TABLE member MODIFY COLUMN member_nickname VARCHAR(255) NOT NULL;
+ALTER TABLE member MODIFY COLUMN member_username VARCHAR(255) NOT NULL;
+ALTER TABLE member MODIFY COLUMN member_join_date DATE NOT NULL;
+
+
 
 -- 멤버의 재참여 정보
 CREATE TABLE membership_period (
@@ -21,6 +28,15 @@ CREATE TABLE membership_period (
     period_now_active BOOLEAN NOT NULL DEFAULT TRUE,
     FOREIGN KEY (member_id) REFERENCES member(member_id)
 );
+-- 이후에 컬럼 수정
+ALTER TABLE membership_period MODIFY COLUMN member_id INT NOT NULL;
+ALTER TABLE membership_period MODIFY COLUMN period_start_date DATE NOT NULL;
+ALTER TABLE membership_period MODIFY COLUMN period_end_date DATE NULL;
+ALTER TABLE membership_period MODIFY COLUMN period_now_active BOOLEAN NOT NULL DEFAULT TRUE;
+
+
+
+
 
 -- 세션별(카메라 온오프) 공부 기록
 CREATE TABLE study_session (
@@ -33,12 +49,15 @@ CREATE TABLE study_session (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+-- 이후에 컬럼 수정
+ALTER TABLE study_session MODIFY COLUMN member_id INT NOT NULL;
+ALTER TABLE study_session MODIFY COLUMN period_id INT NOT NULL;
+ALTER TABLE study_session MODIFY COLUMN session_start_time DATETIME NOT NULL;
+ALTER TABLE study_session MODIFY COLUMN session_end_time DATETIME NULL;
+ALTER TABLE study_session MODIFY COLUMN session_duration INT NOT NULL DEFAULT 0;
 
--- 공부 시작 시간 : 기본값 0
-ALTER TABLE study_session MODIFY session_duration INT DEFAULT 0;
 
--- 공부 종료 시간 : NULL 허용
-ALTER TABLE study_session MODIFY session_end_time DATETIME NULL;
+
 
 -- 일별 공부 기록
 CREATE TABLE activity_log (
@@ -53,6 +72,17 @@ CREATE TABLE activity_log (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+-- 이후에 컬럼 수정
+ALTER TABLE activity_log MODIFY COLUMN member_id INT NOT NULL;
+ALTER TABLE activity_log MODIFY COLUMN period_id INT NOT NULL;
+ALTER TABLE activity_log MODIFY COLUMN log_date DATE NOT NULL;
+ALTER TABLE activity_log MODIFY COLUMN log_message_count INT NOT NULL DEFAULT 0;
+ALTER TABLE activity_log MODIFY COLUMN log_study_time INT NOT NULL;
+ALTER TABLE activity_log MODIFY COLUMN log_login_count INT NOT NULL DEFAULT 0;
+ALTER TABLE activity_log MODIFY COLUMN log_attendance BOOLEAN NOT NULL DEFAULT TRUE;
+
+
+
 
 -- 휴가 기록
 CREATE TABLE vacation_log (
@@ -64,6 +94,15 @@ CREATE TABLE vacation_log (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+-- 이후에 컬럼 수정
+ALTER TABLE vacation_log MODIFY COLUMN member_id INT NOT NULL;
+ALTER TABLE vacation_log MODIFY COLUMN period_id INT NOT NULL;
+ALTER TABLE vacation_log MODIFY COLUMN vacation_date DATE NOT NULL;
+ALTER TABLE vacation_log MODIFY COLUMN vacation_week_start DATE NOT NULL;
+
+
+
+
 
 -- 멤버별 활동 시간대
 CREATE TABLE behavioral_segment (
@@ -75,6 +114,15 @@ CREATE TABLE behavioral_segment (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+-- 이후에 컬럼 수정
+ALTER TABLE behavioral_segment MODIFY COLUMN member_id INT NOT NULL;
+ALTER TABLE behavioral_segment MODIFY COLUMN period_id INT NOT NULL;
+ALTER TABLE behavioral_segment MODIFY COLUMN segment_active_hour VARCHAR(50) NOT NULL;
+ALTER TABLE behavioral_segment MODIFY COLUMN segment_active_period ENUM('Day', 'Night') NOT NULL;
+
+
+
+
 
 -- 이탈률 예측
 CREATE TABLE churn_prediction (
@@ -87,5 +135,11 @@ CREATE TABLE churn_prediction (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+-- 이후에 컬럼 수정
+ALTER TABLE churn_prediction MODIFY COLUMN member_id INT NOT NULL;
+ALTER TABLE churn_prediction MODIFY COLUMN period_id INT NOT NULL;
+ALTER TABLE churn_prediction MODIFY COLUMN prediction_date DATE NOT NULL;
+ALTER TABLE churn_prediction MODIFY COLUMN prediction_absence_count INT NOT NULL;
+ALTER TABLE churn_prediction MODIFY COLUMN prediction_risk_level ENUM('Low', 'Moderate', 'High') NOT NULL;
 
 
