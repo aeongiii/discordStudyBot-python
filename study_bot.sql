@@ -4,7 +4,6 @@ ALTER DATABASE study_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- 기존 테이블을 UTF-8로 변경
 ALTER TABLE member CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
-
 -- 멤버 기본정보
 CREATE TABLE member (
     member_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -34,6 +33,12 @@ CREATE TABLE study_session (
     FOREIGN KEY (member_id) REFERENCES member(member_id),
     FOREIGN KEY (period_id) REFERENCES membership_period(period_id)
 );
+
+-- 공부 시작 시간 : 기본값 0
+ALTER TABLE study_session MODIFY session_duration INT DEFAULT 0;
+
+-- 공부 종료 시간 : NULL 허용
+ALTER TABLE study_session MODIFY session_end_time DATETIME NULL;
 
 -- 일별 공부 기록
 CREATE TABLE activity_log (
