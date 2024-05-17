@@ -143,3 +143,9 @@ ALTER TABLE churn_prediction MODIFY COLUMN prediction_absence_count INT NOT NULL
 ALTER TABLE churn_prediction MODIFY COLUMN prediction_risk_level ENUM('Low', 'Moderate', 'High') NOT NULL;
 
 
+-- //////////////////////////////// 저장된 데이터 초기화 코드 ///////////////////////////////////
+-- study_session 테이블 데이터 초기화 및 ID 리셋
+TRUNCATE TABLE study_session;
+
+-- activity_log 테이블 데이터 초기화 및 ID 리셋
+TRUNCATE TABLE activity_log;
