@@ -70,24 +70,21 @@ def insert_member_and_period(member):
         print("DB 연결 실패")
 
 # 공부 세션 시작 정보 저장
-def start_study_session(member_id, period_id):
+def start_study_session(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         start_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
-        
         try:
             cursor.execute(
                 "INSERT INTO study_session (member_id, period_id, session_start_time, session_end_time) VALUES (%s, %s, %s, %s)",
                 (member_id, period_id, start_time, None)
             )
             connection.commit()
-            print(f"공부 세션 시작: 멤버 ID {member_id}, 시작 시간 {start_time}")
-
+            print(f"공부 세션 시작: 멤버 [{member_display_name}], 시작 시간 {start_time}")
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-        
         finally:
             cursor.close()
             connection.close()
@@ -96,57 +93,59 @@ def start_study_session(member_id, period_id):
 
 
 # 공부 세션 종료 정보 업데이트
-def end_study_session(member_id, period_id):
+async def end_study_session(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor()
+        cursor = connection.cursor(buffered=True)  # 커서를 버퍼링 모드로 설정
         end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
-        
         try:
             # 시작 시간 가져오기
             cursor.execute(
                 "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
                 (member_id, period_id)
             )
-            start_time = cursor.fetchone()[0]
-
+            start_time_result = cursor.fetchone()
+            if start_time_result is None:
+                print(f"{member_display_name}님의 시작 시간이 없습니다.")
+                return False, None
+            start_time = start_time_result[0]
             # 시작 시간이 datetime 객체가 아닌 경우 문자열로 변환
             if isinstance(start_time, str):
                 start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
             else:
                 start_dt = start_time
-            
             end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             duration = int((end_dt - start_dt).total_seconds() // 60)
-            
+            print(f"start_dt: {start_dt}, end_dt: {end_dt}, duration: {duration}")
             # 종료 시간 및 기간 업데이트
             cursor.execute(
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
                 (end_time, duration, member_id, period_id)
             )
             connection.commit()
-
             # 공부 시간이 5분 이상인 경우에만 activity_log 테이블의 log_study_time에 공부시간 누적
             if duration >= 5:
                 cursor.execute(
                     "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_study_time = log_study_time + %s",
                     (member_id, period_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), duration, duration)
                 )
-                print(f"{member_id} 멤버의 최근 공부 시간: {duration}분")
+                message = f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
+                print(f"{member_display_name}님의 최근 공부 시간: {duration}분")
             else:
-                print(f"{member_id} 멤버의 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
-            
+                message = f"{member_display_name}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
+                print(f"{member_display_name}님의 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
             connection.commit()
-
+            return True, message
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-
+            return False, None
         finally:
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
+        return False, None
 
 
 
@@ -217,7 +216,7 @@ async def on_voice_state_update(member, before, after):
             if result:
                 member_id = result[0]
             else:
-                cursor.close() 
+                cursor.close()
                 connection.close()
                 return  # 멤버 정보가 없으면 함수 종료
 
@@ -234,19 +233,24 @@ async def on_voice_state_update(member, before, after):
             cursor.close()
             connection.close()
 
+            member_display_name = member.display_name
+
             if before.self_video is False and after.self_video is True:
-                await ch.send(f"{member.display_name}님 공부 시작!✏️")  # 카메라 on
-                start_study_session(member_id, period_id)
-            elif before.self_video is True and after.self_video is False:
-                await ch.send(f"{member.display_name}님 공부 종료!👍")  # 카메라 off
-                end_study_session(member_id, period_id)
-        
+                await ch.send(f"{member_display_name}님 공부 시작!✏️")  # 카메라 on
+                start_study_session(member_id, period_id, member_display_name)
+            elif (before.self_video is True and after.self_video is False) or (before.channel is not None and after.channel is None):
+                success, message = await end_study_session(member_id, period_id, member_display_name)
+                if success and message:
+                    await ch.send(message)  # 카메라 off 후 메시지 전송
+
         except Error as e:
             print(f"'{e}' 에러 발생")
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
+
+
 
 # 봇을 실행시키기 위한 토큰 작성하는 부분
 client.run('MTIzODg4MTY1ODMzODU0MTU3OA.G7Wkj9.P0PmbdQf7MmyTIjdJSfX4JOExa8U-E51-fMCh0')
