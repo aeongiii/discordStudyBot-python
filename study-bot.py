@@ -125,10 +125,25 @@ async def end_study_session(member_id, period_id, member_display_name):
             connection.commit()
             # 공부 시간이 5분 이상인 경우에만 activity_log 테이블의 log_study_time에 공부시간 누적
             if duration >= 5:
+                # activity_log에 해당 날짜와 멤버의 레코드가 존재하는지 확인
+                log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
                 cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_study_time = log_study_time + %s",
-                    (member_id, period_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), duration, duration)
+                    "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                    (member_id, period_id, log_date)
                 )
+                log_id = cursor.fetchone()
+                if log_id:
+                    # 이미 존재하는 레코드에 공부 시간 누적
+                    cursor.execute(
+                        "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
+                        (duration, log_id[0])
+                    )
+                else:
+                    # 새로운 레코드 삽입
+                    cursor.execute(
+                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
+                        (member_id, period_id, log_date, duration)
+                    )
                 message = f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
                 print(f"{member_display_name}님의 최근 공부 시간: {duration}분")
             else:
@@ -252,5 +267,5 @@ async def on_voice_state_update(member, before, after):
 
 
 
-# 봇을 실행시키기 위한 토큰 작성하는 부분
+# 봇 실행 토큰
 client.run('MTIzODg4MTY1ODMzODU0MTU3OA.G7Wkj9.P0PmbdQf7MmyTIjdJSfX4JOExa8U-E51-fMCh0')
