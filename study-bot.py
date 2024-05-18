@@ -213,7 +213,7 @@ async def on_message(message):
     if message.content == "휴가신청":  # 휴가신청은 휴가신청방에서만 신청할 수 있도록 해야!
         # [휴가신청]에 메시지 보내기
         ch = client.get_channel(1238896271939338282)
-        await ch.send("{} | {}님, 오늘 휴가신청이 완료되었습니다! 재충전하고 내일 만나요☀️".format(message.author, message.author.mention))
+        await ch.send("{} | {}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요☀️".format(message.author, message.author.mention))
 
 @client.event
 async def on_voice_state_update(member, before, after):
