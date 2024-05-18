@@ -162,8 +162,39 @@ async def end_study_session(member_id, period_id, member_display_name):
         print("DB 연결 실패")
         return False, None
 
+# 휴가 기록 추가 함수
+def insert_vacation_log(member_id, period_id, member_display_name):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        vacation_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
 
+        try:
+            # vacation_log 테이블에 기록 추가
+            cursor.execute(
+                "INSERT INTO vacation_log (member_id, period_id, vacation_date, vacation_week_start) VALUES (%s, %s, %s, %s)",
+                (member_id, period_id, vacation_date, vacation_week_start)
+            )
 
+            # activity_log 테이블에 출석 기록 추가 또는 업데이트
+            cursor.execute(
+                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_attendance = VALUES(log_attendance)",
+                (member_id, period_id, vacation_date, 0, 0, 0, True)
+            )
+
+            connection.commit()
+            print(f"{member_display_name}님의 휴가 기록이 추가되었습니다. [날짜 : {vacation_date}]")
+            
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
 intents = discord.Intents.default()
@@ -203,17 +234,50 @@ async def on_message(message):
         embed.add_field(name = "📚 공부는 어떻게 시작하나요?", value= "[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
         embed.add_field(name = "⏰매일 5분 이상 공부해야 해요!", value= "이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
         embed.add_field(name = "✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value= "아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
-        embed.add_field(name = "🛏️쉬고싶은 날이 있나요?", value= "채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
+        embed.add_field(name = "🛏️쉬고싶은 날이 있나요?", value= "채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
         embed.add_field(name = "⚠️스터디 조건 미달", value= "공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
         embed.add_field(name = "📊공부시간 순위 공개", value= "매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
         embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
         embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
         await message.channel.send(embed=embed)
 
-    if message.content == "휴가신청":  # 휴가신청은 휴가신청방에서만 신청할 수 있도록 해야!
-        # [휴가신청]에 메시지 보내기
-        ch = client.get_channel(1238896271939338282)
-        await ch.send("{} | {}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요☀️".format(message.author, message.author.mention))
+    if message.content == "휴가신청":
+        if message.channel.id == 1238896271939338282:
+            connection = create_db_connection()
+            if connection:
+                cursor = connection.cursor(buffered=True)
+                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
+                result = cursor.fetchone()
+                cursor.fetchall()  # 모든 결과를 명시적으로 읽음
+
+                if result:
+                    member_id = result[0]
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                    result = cursor.fetchone()
+                    cursor.fetchall()  # 모든 결과를 명시적으로 읽음
+
+                    if result: 
+                        period_id = result[0]
+                        insert_vacation_log(member_id, period_id, message.author.display_name)
+                        await message.channel.send(f"{message.author.mention}님, 휴가신청 완료! 재충전하고 내일 만나요!☀️")
+                    else:
+                        await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
+                else:
+                    await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
+                
+                cursor.close()
+                connection.close()
+            else:
+                await message.channel.send("DB 연결 실패")
+        else:
+            await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
+
+
+# 이미 이번주에 휴가 사용한 경우 안내하기
+
+
+
+
 
 @client.event
 async def on_voice_state_update(member, before, after):
@@ -264,6 +328,32 @@ async def on_voice_state_update(member, before, after):
             connection.close()
     else:
         print("DB 연결 실패")
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
