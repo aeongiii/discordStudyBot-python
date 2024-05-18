@@ -171,6 +171,17 @@ def insert_vacation_log(member_id, period_id, member_display_name):
         vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
 
         try:
+
+            # 이번 주에 이미 휴가를 사용했는지 확인
+            cursor.execute(
+                "SELECT vacation_date FROM vacation_log WHERE member_id = %s AND period_id = %s AND vacation_week_start = %s",
+                (member_id, period_id, vacation_week_start)
+            )
+            result = cursor.fetchone()
+            if result:
+                already_used_date = result[0].strftime('%Y-%m-%d')
+                return False, f"{member_display_name}님, 이미 이번주에 휴가를 사용했어요! 휴가 사용일: {already_used_date}"
+
             # vacation_log 테이블에 기록 추가
             cursor.execute(
                 "INSERT INTO vacation_log (member_id, period_id, vacation_date, vacation_week_start) VALUES (%s, %s, %s, %s)",
@@ -185,16 +196,19 @@ def insert_vacation_log(member_id, period_id, member_display_name):
 
             connection.commit()
             print(f"{member_display_name}님의 휴가 기록이 추가되었습니다. [날짜 : {vacation_date}]")
+            return True, f"{member_display_name}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
             
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
+            return False, None
 
         finally:
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
+        return False, None
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
 intents = discord.Intents.default()
@@ -246,27 +260,31 @@ async def on_message(message):
             connection = create_db_connection()
             if connection:
                 cursor = connection.cursor(buffered=True)
-                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
-                result = cursor.fetchone()
-                cursor.fetchall()  # 모든 결과를 명시적으로 읽음
-
-                if result:
-                    member_id = result[0]
-                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                try:
+                    cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
                     result = cursor.fetchone()
-                    cursor.fetchall()  # 모든 결과를 명시적으로 읽음
+                    if result:
+                        member_id = result[0]
+                        cursor.close()  # 커서 닫기
+                        
+                        cursor = connection.cursor(buffered=True)  # 새 커서 열기
+                        cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                        result = cursor.fetchone()
+                        if result:
+                            period_id = result[0]
+                            cursor.close()  # 커서 닫기
 
-                    if result: 
-                        period_id = result[0]
-                        insert_vacation_log(member_id, period_id, message.author.display_name)
-                        await message.channel.send(f"{message.author.mention}님, 휴가신청 완료! 재충전하고 내일 만나요!☀️")
+                            success, response_message = insert_vacation_log(member_id, period_id, message.author.display_name)
+                            await message.channel.send(response_message)
+                        else:
+                            await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
                     else:
-                        await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
-                else:
-                    await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
-                
-                cursor.close()
-                connection.close()
+                        await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
+                except Error as e:
+                    print(f"'{e}' 에러 발생")
+                finally:
+                    cursor.close()
+                    connection.close()
             else:
                 await message.channel.send("DB 연결 실패")
         else:
