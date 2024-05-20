@@ -35,7 +35,13 @@ def insert_member_and_period(member):
             if result:
                 member_id = result[0]
                 print(f"[{member.display_name}] 해당 멤버가 이미 등록되어 있습니다. [ID : {member_id}]")
-                # 기존 멤버가 있으면 membership_period 테이블에 새로운 기간을 등록
+                # 기존 멤버가 있으면 현재 활성화된 기간을 비활성화하고 새로운 기간을 등록
+                cursor.execute(
+                    "UPDATE membership_period SET period_now_active = 0, period_end_date = %s WHERE member_id = %s AND period_now_active = 1",
+                    (datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), member_id)
+                )
+                cursor.close()
+                cursor = connection.cursor(buffered=True)
                 cursor.execute(
                     "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
                     (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), 1)
@@ -58,16 +64,49 @@ def insert_member_and_period(member):
                 )
             connection.commit()
             print(f"[{member.display_name}] 해당 멤버의 멤버십이 시작되었습니다.")
-
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-
         finally:
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
+
+
+# 멤버 탈퇴 처리
+def handle_member_leave(member):
+    connection = create_db_connection()
+
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        leave_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+
+        try:
+            # 멤버 정보 가져오기
+            cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
+            result = cursor.fetchone()
+            if result:
+                member_id = result[0]
+                # 현재 활성화된 기간을 비활성화하고 종료 날짜 업데이트
+                cursor.execute(
+                    "UPDATE membership_period SET period_now_active = 0, period_end_date = %s WHERE member_id = %s AND period_now_active = 1",
+                    (leave_date, member_id)
+                )
+                connection.commit()
+                print(f"[{member.display_name}]님의 탈퇴가 처리되었습니다. 탈퇴 날짜: {leave_date}")
+            else:
+                print(f"{member.display_name}님의 정보를 찾을 수 없습니다.")
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
 
 # 공부 세션 시작 정보 저장
 def start_study_session(member_id, period_id, member_display_name):
@@ -195,7 +234,7 @@ def insert_vacation_log(member_id, period_id, member_display_name):
             )
 
             connection.commit()
-            print(f"{member_display_name}님의 휴가 기록이 추가되었습니다. [날짜 : {vacation_date}]")
+            print(f"{member_display_name}님의 휴가신청 완료되었습니다. [날짜 : {vacation_date}]")
             return True, f"{member_display_name}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
             
         except Error as e:
@@ -221,8 +260,9 @@ intents.members = True  # 멤버 관련 이벤트 처리 활성화
 # 봇 클라이언트 설정
 client = discord.Client(intents = intents)
 
+# 봇이 실행중일 때 상태메시지
 @client.event
-async def on_ready() : # 봇이 실행되면 한 번 실행함
+async def on_ready() :
     print("터미널에서 실행됨") 
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
 
@@ -232,10 +272,16 @@ async def on_member_join(member):
     print(f'[{member.display_name}]님이 서버에 참여했습니다.')
     insert_member_and_period(member)  
 
-# 공지
+# 멤버 탈퇴 시 [membership_period]테이블에 정보 업데이투
+@client.event
+async def on_member_remove(member):
+    print(f'[{member.display_name}]님이 서버를 탈퇴했습니다.') # 파이썬 터미널에 출력됨!
+    handle_member_leave(member)
+
+# 처음 서버 입장 시 공지
 @client.event
 async def on_message(message):
-    if message.content == "공지": # 메시지 감지
+    if message.content == "공지":
         # 채널에 전체공개 메시지 보내기
         # await message.channel.send ("{} | {}님, 오늘도 열공하세요!✏️".format(message.author, message.author.mention))
         
@@ -291,12 +337,7 @@ async def on_message(message):
             await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
 
 
-# 이미 이번주에 휴가 사용한 경우 안내하기
-
-
-
-
-
+# 공부 시작 / 공부 종료 함수
 @client.event
 async def on_voice_state_update(member, before, after):
     ch = client.get_channel(1239098139361808429)
