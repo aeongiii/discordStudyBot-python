@@ -302,24 +302,25 @@ async def on_message(message):
         await message.channel.send(embed=embed)
 
     if message.content == "휴가신청":
-        if message.channel.id == 1238896271939338282:
+        if message.channel.id == 1238896271939338282: # [휴가신청] 채널
             connection = create_db_connection()
+            # 휴가신청 채널에 메시지가 보내진 경우
             if connection:
                 cursor = connection.cursor(buffered=True)
-                try:
+                try:  # member_id 조회
                     cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
                     result = cursor.fetchone()
                     if result:
                         member_id = result[0]
-                        cursor.close()  # 커서 닫기
+                        cursor.close()
                         
-                        cursor = connection.cursor(buffered=True)  # 새 커서 열기
+                        cursor = connection.cursor(buffered=True) # period_id 조회
                         cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
                         result = cursor.fetchone()
                         if result:
                             period_id = result[0]
-                            cursor.close()  # 커서 닫기
-
+                            cursor.close()
+                            # insert_vacation_log 함수를 호출하여 휴가 기록 추가
                             success, response_message = insert_vacation_log(member_id, period_id, message.author.display_name)
                             await message.channel.send(response_message)
                         else:
@@ -333,6 +334,7 @@ async def on_message(message):
                     connection.close()
             else:
                 await message.channel.send("DB 연결 실패")
+        # 다른 채널에 메시지가 보내진 경우
         else:
             await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
 
