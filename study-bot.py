@@ -20,6 +20,8 @@ def create_db_connection():
     except Error as e:
         print(f"'{e}' 에러 발생")
         return None
+    
+# ---------------------------------------- 서버 참여 / 서버 탈퇴 함수 ----------------------------------------
 
 # 멤버 정보 & 멤버십 기간 등록
 def insert_member_and_period(member):
@@ -106,7 +108,24 @@ def handle_member_leave(member):
     else:
         print("DB 연결 실패")
 
+# ---------------------------------------- 공지 관련 함수 ----------------------------------------       
 
+# '공지' 입력 시 공지사항 출력 함수
+async def send_announcement(channel, author_mention):
+    embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description=f"{author_mention}님, 환영합니다!\n", 
+                          timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
+    embed.add_field(name="📚 공부는 어떻게 시작하나요?", value="[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
+    embed.add_field(name="⏰매일 5분 이상 공부해야 해요!", value="이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
+    embed.add_field(name="✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value="아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
+    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
+    embed.add_field(name="⚠️스터디 조건 미달", value="공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
+    embed.add_field(name="📊공부시간 순위 공개", value="매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
+    embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
+    await channel.send(embed=embed)        
+
+
+# ---------------------------------------- 공부 시작 / 공부 종료 함수 ----------------------------------------
 
 # 공부 세션 시작 정보 저장
 def start_study_session(member_id, period_id, member_display_name):
@@ -145,7 +164,7 @@ async def end_study_session(member_id, period_id, member_display_name):
             )
             start_time_result = cursor.fetchone()
             if start_time_result is None:
-                print(f"{member_display_name}님의 시작 시간이 없습니다.")
+                print(f"{member_display_name}님의 시작 시간이 등록되지 않았습니다.")
                 return False, None
             start_time = start_time_result[0]
             # 시작 시간이 datetime 객체가 아닌 경우 문자열로 변환
@@ -200,6 +219,46 @@ async def end_study_session(member_id, period_id, member_display_name):
     else:
         print("DB 연결 실패")
         return False, None
+    
+
+# ---------------------------------------- 휴가 신청 함수 ----------------------------------------
+    
+
+# 휴가 신청 함수
+async def process_vacation_request(message):
+    if message.channel.id == 1238896271939338282:  # [휴가신청] 채널
+        connection = create_db_connection()
+        if connection:
+            cursor = connection.cursor(buffered=True)
+            try:
+                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
+                result = cursor.fetchone()
+                if result:
+                    member_id = result[0]
+                    cursor.close()
+
+                    cursor = connection.cursor(buffered=True)  # period_id 조회
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        period_id = result[0]
+                        cursor.close()
+                        # insert_vacation_log 함수를 호출하여 휴가 기록 추가
+                        success, response_message = insert_vacation_log(member_id, period_id, message.author.display_name)
+                        await message.channel.send(response_message)
+                    else:
+                        await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
+                else:
+                    await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
+            except Error as e:
+                print(f"'{e}' 에러 발생")
+            finally:
+                cursor.close()
+                connection.close()
+        else:
+            await message.channel.send("DB 연결 실패")
+    else:
+        await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
 
 # 휴가 기록 추가 함수
 def insert_vacation_log(member_id, period_id, member_display_name):
@@ -248,6 +307,9 @@ def insert_vacation_log(member_id, period_id, member_display_name):
     else:
         print("DB 연결 실패")
         return False, None
+    
+
+# ================================================ 서버 이벤트 ================================================
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
 intents = discord.Intents.default()
@@ -266,11 +328,26 @@ async def on_ready() :
     print("터미널에서 실행됨") 
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
 
-# 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가
+
+# 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가 및 공지 출력
 @client.event
 async def on_member_join(member):
     print(f'[{member.display_name}]님이 서버에 참여했습니다.')
-    insert_member_and_period(member)  
+    insert_member_and_period(member)
+    # [공지] 채널에서 공지 출력
+    ch = client.get_channel(1238886734725648499)  # [공지] 채널 ID
+    embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description=f"{member.mention}님, 환영합니다!\n", 
+                          timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
+    embed.add_field(name="📚 공부는 어떻게 시작하나요?", value="[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
+    embed.add_field(name="⏰매일 5분 이상 공부해야 해요!", value="이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
+    embed.add_field(name="✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value="아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
+    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
+    embed.add_field(name="⚠️스터디 조건 미달", value="공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
+    embed.add_field(name="📊공부시간 순위 공개", value="매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
+    embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
+    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
+    await ch.send(embed=embed)
+ 
 
 # 멤버 탈퇴 시 [membership_period]테이블에 정보 업데이투
 @client.event
@@ -278,76 +355,26 @@ async def on_member_remove(member):
     print(f'[{member.display_name}]님이 서버를 탈퇴했습니다.') # 파이썬 터미널에 출력됨!
     handle_member_leave(member)
 
-# 처음 서버 입장 시 공지
+
+# '공지' 명령어 입력 시 공지사항 출력 / '휴가신청' 입력 시 휴가신청
 @client.event
 async def on_message(message):
     if message.content == "공지":
-        # 채널에 전체공개 메시지 보내기
-        # await message.channel.send ("{} | {}님, 오늘도 열공하세요!✏️".format(message.author, message.author.mention))
-        
-        # 다이렉트 메세지(1:1) 보내기
-        # await message.author.send ("{} | {}, User, Hello".format(message.author, message.author.mention))
-
-        # 임베드하여 공지글 출력하기
-        embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description="{}님, 환영합니다!\n".format(message.author, message.author.mention), 
-                              timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
-        embed.add_field(name = "📚 공부는 어떻게 시작하나요?", value= "[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
-        embed.add_field(name = "⏰매일 5분 이상 공부해야 해요!", value= "이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
-        embed.add_field(name = "✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value= "아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
-        embed.add_field(name = "🛏️쉬고싶은 날이 있나요?", value= "채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
-        embed.add_field(name = "⚠️스터디 조건 미달", value= "공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
-        embed.add_field(name = "📊공부시간 순위 공개", value= "매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
-        embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
-        embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
-        await message.channel.send(embed=embed)
-
-    if message.content == "휴가신청":
-        if message.channel.id == 1238896271939338282: # [휴가신청] 채널
-            connection = create_db_connection()
-            # 휴가신청 채널에 메시지가 보내진 경우
-            if connection:
-                cursor = connection.cursor(buffered=True)
-                try:  # member_id 조회
-                    cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
-                    result = cursor.fetchone()
-                    if result:
-                        member_id = result[0]
-                        cursor.close()
-                        
-                        cursor = connection.cursor(buffered=True) # period_id 조회
-                        cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
-                        result = cursor.fetchone()
-                        if result:
-                            period_id = result[0]
-                            cursor.close()
-                            # insert_vacation_log 함수를 호출하여 휴가 기록 추가
-                            success, response_message = insert_vacation_log(member_id, period_id, message.author.display_name)
-                            await message.channel.send(response_message)
-                        else:
-                            await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
-                    else:
-                        await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
-                except Error as e:
-                    print(f"'{e}' 에러 발생")
-                finally:
-                    cursor.close()
-                    connection.close()
-            else:
-                await message.channel.send("DB 연결 실패")
-        # 다른 채널에 메시지가 보내진 경우
+        if message.channel.id == 1238886734725648499:  # [공지] 채널
+            await send_announcement(message.channel, message.author.mention) # 공지사항 출력 함수 호출
         else:
-            await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
+            await message.channel.send(f"{message.author.mention}님, 공지사항은 [공지] 채널에서 볼 수 있어요!")
+    elif message.content == "휴가신청":
+        await process_vacation_request(message) # 휴가 관련 함수 호출
 
 
 # 공부 시작 / 공부 종료 함수
 @client.event
 async def on_voice_state_update(member, before, after):
     ch = client.get_channel(1239098139361808429)
-
-    # 멤버 정보와 활동 기간 ID 가져오기
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)  # 버퍼링 된 커서 사용
+        cursor = connection.cursor(buffered=True)
 
         try:
             # 멤버 정보 가져오기
@@ -375,13 +402,16 @@ async def on_voice_state_update(member, before, after):
 
             member_display_name = member.display_name
 
+            # 카메라 on 하면 = 공부 시작
             if before.self_video is False and after.self_video is True:
-                await ch.send(f"{member_display_name}님 공부 시작!✏️")  # 카메라 on
+                await ch.send(f"{member_display_name}님 공부 시작!✏️")  
                 start_study_session(member_id, period_id, member_display_name)
+            
+            # 카메라 on 상태였다가 카메라 off 또는 음성채널 나갈 경우 = 공부 종료
             elif (before.self_video is True and after.self_video is False) or (before.channel is not None and after.channel is None):
                 success, message = await end_study_session(member_id, period_id, member_display_name)
                 if success and message:
-                    await ch.send(message)  # 카메라 off 후 메시지 전송
+                    await ch.send(message)  # 공부기록됐다~ 메시지 전송
 
         except Error as e:
             print(f"'{e}' 에러 발생")
