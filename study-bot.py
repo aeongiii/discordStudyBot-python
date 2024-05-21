@@ -1,5 +1,5 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import asyncio
 import mysql.connector
 from mysql.connector import Error
@@ -221,8 +221,122 @@ async def end_study_session(member_id, period_id, member_display_name):
         return False, None
     
 
-# ---------------------------------------- 휴가 신청 함수 ----------------------------------------
+# ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
+# 멤버 결석 처리 함수
+def process_absence(member_id, period_id, member_display_name):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        absence_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+
+        try:
+            # 현재 결석 일수 가져오기
+            cursor.execute(
+                "SELECT COUNT(*) FROM churn_prediction WHERE member_id = %s AND period_id = %s",
+                (member_id, period_id)
+            )
+            absence_count = cursor.fetchone()[0] + 1
+
+            # 결석 기록 추가
+            cursor.execute(
+                "INSERT INTO churn_prediction (member_id, period_id, prediction_date, prediction_absence_count, prediction_risk_level) VALUES (%s, %s, %s, %s, %s)",
+                (member_id, period_id, absence_date, absence_count, get_risk_level(absence_count))
+            )
+
+            connection.commit()
+            print(f"{member_display_name}님의 결석이 기록되었습니다. 결석 일수: {absence_count}")
+
+            # 결석 일수가 3일 이상인 경우 안내 메시지 반환
+            if absence_count >= 3:
+                return f"{member_display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻"
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+            return None
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+        return None
     
+# 결석일수에 따라 이탈 위험 수준 결정
+def get_risk_level(absence_count):
+    if absence_count == 1:
+        return 'Low'
+    elif absence_count == 2:
+        return 'Moderate'
+    else:
+        return 'High'
+    
+# 매일 0시에 전날 결석 체크 + 결석 3회 시 익일에 탈퇴 처리
+@tasks.loop(hours=24)  # 실제 코드에서는 hour=24로 변경
+async def check_absences():
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
+            cursor.execute("""
+                SELECT m.member_id, m.member_username
+                FROM member m
+                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURDATE()
+                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURDATE()
+                WHERE v.member_id IS NULL AND s.member_id IS NULL
+            """)
+            results = cursor.fetchall()
+
+            if results:
+                for result in results:
+                    member_id = result[0]
+                    member_username = result[1]
+                    process_absence(member_id, 1, member_username)  # period_id 값을 1로 가정
+
+            # 결석 3회 이상인 멤버 검색
+            cursor.execute(
+                "SELECT member_id, member_username FROM churn_prediction WHERE prediction_absence_count >= 3 AND DATE(prediction_date) <= DATE_SUB(NOW(), INTERVAL 1 DAY)"
+            )
+            results = cursor.fetchall()
+
+            if results:
+                for result in results:
+                    member_id = result[0]
+                    member_username = result[1]
+                    user = discord.utils.get(client.get_all_members(), name=member_username)
+                    if user:
+                        try:
+                            await user.send(f"{user.display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
+                        except discord.Forbidden:
+                            print(f"DM을 보낼 수 없습니다: {member_username}")
+
+            # 익일 0시에 탈퇴 처리
+            await asyncio.sleep(86400)  # 24시간 대기
+            if results:
+                for result in results:
+                    member_id = result[0]
+                    member_username = result[1]
+                    guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
+                    if guild:
+                        member = discord.utils.get(guild.members, name=member_username)
+                        if member:
+                            await guild.kick(member, reason="스터디 조건 미달")
+                        else:
+                            print(f"Member {member_username} not found in guild {guild.name}")
+                    else:
+                        print(f"Guild with ID {1238886734725648496} not found")
+
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+
+        
+# ---------------------------------------- 휴가 신청 함수 ----------------------------------------
 
 # 휴가 신청 함수
 async def process_vacation_request(message):
@@ -307,7 +421,7 @@ def insert_vacation_log(member_id, period_id, member_display_name):
     else:
         print("DB 연결 실패")
         return False, None
-    
+
 
 # ================================================ 서버 이벤트 ================================================
 
@@ -324,29 +438,18 @@ client = discord.Client(intents = intents)
 
 # 봇이 실행중일 때 상태메시지
 @client.event
-async def on_ready() :
-    print("터미널에서 실행됨") 
+async def on_ready():
+    print("터미널에서 실행됨")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-
+    check_absences.start()
 
 # 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가 및 공지 출력
 @client.event
 async def on_member_join(member):
     print(f'[{member.display_name}]님이 서버에 참여했습니다.')
     insert_member_and_period(member)
-    # [공지] 채널에서 공지 출력
-    ch = client.get_channel(1238886734725648499)  # [공지] 채널 ID
-    embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description=f"{member.mention}님, 환영합니다!\n", 
-                          timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
-    embed.add_field(name="📚 공부는 어떻게 시작하나요?", value="[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
-    embed.add_field(name="⏰매일 5분 이상 공부해야 해요!", value="이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
-    embed.add_field(name="✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value="아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
-    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
-    embed.add_field(name="⚠️스터디 조건 미달", value="공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
-    embed.add_field(name="📊공부시간 순위 공개", value="매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
-    embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
-    embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
-    await ch.send(embed=embed)
+    ch = client.get_channel(1238886734725648499)
+    await send_announcement(ch, member.mention)
  
 
 # 멤버 탈퇴 시 [membership_period]테이블에 정보 업데이투
@@ -360,29 +463,32 @@ async def on_member_remove(member):
 @client.event
 async def on_message(message):
     if message.content == "공지":
-        if message.channel.id == 1238886734725648499:  # [공지] 채널
-            await send_announcement(message.channel, message.author.mention) # 공지사항 출력 함수 호출
+        if message.channel.id == 1238886734725648499: # [공지]채널
+            await send_announcement(message.channel, message.author.mention) # 공지 함수 호출
         else:
             await message.channel.send(f"{message.author.mention}님, 공지사항은 [공지] 채널에서 볼 수 있어요!")
-    elif message.content == "휴가신청":
-        await process_vacation_request(message) # 휴가 관련 함수 호출
+    if message.content == "휴가신청":
+        await process_vacation_request(message) # 휴가신청 함수 호출
 
 
-# 공부 시작 / 공부 종료 함수
+# 공부 시작 / 공부 종료 함수  -- 오류 해결때문에 각각 로그 추가!
 @client.event
 async def on_voice_state_update(member, before, after):
+    print(f"Voice state update detected for {member.display_name} (username: {str(member)})")
     ch = client.get_channel(1239098139361808429)
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor(buffered=True)
-
         try:
             # 멤버 정보 가져오기
+            print(f"Querying for member: {str(member)}")
             cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
             result = cursor.fetchone()
             if result:
                 member_id = result[0]
+                print(f"Member ID found: {member_id}")
             else:
+                print(f"No member ID found for {member.display_name} (username: {str(member)})")
                 cursor.close()
                 connection.close()
                 return  # 멤버 정보가 없으면 함수 종료
@@ -392,7 +498,9 @@ async def on_voice_state_update(member, before, after):
             result = cursor.fetchone()
             if result:
                 period_id = result[0]
+                print(f"Period ID found: {period_id}")
             else:
+                print(f"No active period ID found for {member.display_name}")
                 cursor.close()
                 connection.close()
                 return  # 활동 기간 정보가 없으면 함수 종료
@@ -404,11 +512,13 @@ async def on_voice_state_update(member, before, after):
 
             # 카메라 on 하면 = 공부 시작
             if before.self_video is False and after.self_video is True:
+                print(f"{member_display_name} started studying")
                 await ch.send(f"{member_display_name}님 공부 시작!✏️")  
                 start_study_session(member_id, period_id, member_display_name)
             
             # 카메라 on 상태였다가 카메라 off 또는 음성채널 나갈 경우 = 공부 종료
             elif (before.self_video is True and after.self_video is False) or (before.channel is not None and after.channel is None):
+                print(f"{member_display_name} stopped studying")
                 success, message = await end_study_session(member_id, period_id, member_display_name)
                 if success and message:
                     await ch.send(message)  # 공부기록됐다~ 메시지 전송
@@ -419,6 +529,7 @@ async def on_voice_state_update(member, before, after):
             connection.close()
     else:
         print("DB 연결 실패")
+
 
 
 

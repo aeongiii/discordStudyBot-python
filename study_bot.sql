@@ -149,3 +149,13 @@ TRUNCATE TABLE study_session;
 
 -- activity_log 테이블 데이터 초기화 및 ID 리셋
 TRUNCATE TABLE activity_log;
+
+
+-- //////////////////////////////// 테이블 완전히 삭제 ///////////////////////////////////
+DROP TABLE IF EXISTS member;
+DROP TABLE IF EXISTS membership_period;
+DROP TABLE IF EXISTS study_session;
+DROP TABLE IF EXISTS activity_log;
+DROP TABLE IF EXISTS vacation_log;
+DROP TABLE IF EXISTS churn_prediction;
+DROP TABLE IF EXISTS behavioral_segment;
