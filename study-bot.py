@@ -154,7 +154,7 @@ def start_study_session(member_id, period_id, member_display_name):
 async def end_study_session(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)  # 커서를 버퍼링 모드로 설정
+        cursor = connection.cursor(buffered=True)
         end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
         try:
             # 시작 시간 가져오기
@@ -174,7 +174,6 @@ async def end_study_session(member_id, period_id, member_display_name):
                 start_dt = start_time
             end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             duration = int((end_dt - start_dt).total_seconds() // 60)
-            print(f"start_dt: {start_dt}, end_dt: {end_dt}, duration: {duration}")
             # 종료 시간 및 기간 업데이트
             cursor.execute(
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
@@ -219,6 +218,7 @@ async def end_study_session(member_id, period_id, member_display_name):
     else:
         print("DB 연결 실패")
         return False, None
+
     
 
 # ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
@@ -567,21 +567,17 @@ async def on_message(message):
 # 공부 시작 / 공부 종료 함수  -- 오류 해결때문에 각각 로그 추가!
 @client.event
 async def on_voice_state_update(member, before, after):
-    print(f"Voice state update detected for {member.display_name} (username: {str(member)})")
     ch = client.get_channel(1239098139361808429)
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor(buffered=True)
         try:
             # 멤버 정보 가져오기
-            print(f"Querying for member: {str(member)}")
             cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
             result = cursor.fetchone()
             if result:
                 member_id = result[0]
-                print(f"Member ID found: {member_id}")
             else:
-                print(f"No member ID found for {member.display_name} (username: {str(member)})")
                 cursor.close()
                 connection.close()
                 return  # 멤버 정보가 없으면 함수 종료
@@ -591,9 +587,7 @@ async def on_voice_state_update(member, before, after):
             result = cursor.fetchone()
             if result:
                 period_id = result[0]
-                print(f"Period ID found: {period_id}")
             else:
-                print(f"No active period ID found for {member.display_name}")
                 cursor.close()
                 connection.close()
                 return  # 활동 기간 정보가 없으면 함수 종료
@@ -605,13 +599,11 @@ async def on_voice_state_update(member, before, after):
 
             # 카메라 on 하면 = 공부 시작
             if before.self_video is False and after.self_video is True:
-                print(f"{member_display_name} started studying")
-                await ch.send(f"{member_display_name}님 공부 시작!✏️")  
+                await ch.send(f"{member_display_name}님 공부 시작!✏️")
                 start_study_session(member_id, period_id, member_display_name)
             
             # 카메라 on 상태였다가 카메라 off 또는 음성채널 나갈 경우 = 공부 종료
             elif (before.self_video is True and after.self_video is False) or (before.channel is not None and after.channel is None):
-                print(f"{member_display_name} stopped studying")
                 success, message = await end_study_session(member_id, period_id, member_display_name)
                 if success and message:
                     await ch.send(message)  # 공부기록됐다~ 메시지 전송
@@ -622,6 +614,7 @@ async def on_voice_state_update(member, before, after):
             connection.close()
     else:
         print("DB 연결 실패")
+
 
 
 
