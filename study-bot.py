@@ -421,6 +421,75 @@ def insert_vacation_log(member_id, period_id, member_display_name):
     else:
         print("DB 연결 실패")
         return False, None
+    
+
+# ---------------------------------------- 내 정보 확인 함수 ----------------------------------------
+
+# 공부시간 안내 함수
+async def send_study_time_info(user, member_id, period_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            # 오늘 공부시간
+            cursor.execute(
+                "SELECT log_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = CURDATE()",
+                (member_id, period_id)
+            )
+            today_study_time = cursor.fetchone()
+            if today_study_time:
+                today_study_time = today_study_time[0]
+            else:
+                today_study_time = 0
+
+            # 이번 주 공부시간
+            cursor.execute(
+                """
+                SELECT SUM(log_study_time) FROM activity_log
+                WHERE member_id = %s AND period_id = %s
+                AND log_date >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
+                AND log_date <= CURDATE()
+                """,
+                (member_id, period_id)
+            )
+            week_study_time = cursor.fetchone()
+            if week_study_time and week_study_time[0]:
+                week_study_time = week_study_time[0]
+            else:
+                week_study_time = 0
+
+            # 누적 공부시간
+            cursor.execute(
+                """
+                SELECT SUM(log_study_time) FROM activity_log
+                WHERE member_id = %s AND period_id = %s
+                """,
+                (member_id, period_id)
+            )
+            total_study_time = cursor.fetchone()
+            if total_study_time and total_study_time[0]:
+                total_study_time = total_study_time[0]
+            else:
+                total_study_time = 0
+
+            # 시간과 분으로 변환
+            today_hours, today_minutes = divmod(today_study_time, 60)
+            week_hours, week_minutes = divmod(week_study_time, 60)
+            total_hours, total_minutes = divmod(total_study_time, 60)
+
+            await user.send(
+                f"현재까지의 공부시간을 안내합니다.\n"
+                f"1. 오늘 공부시간 : {today_hours}시간 {today_minutes}분\n"
+                f"2. 이번 주 공부시간 : {week_hours}시간 {week_minutes}분\n"
+                f"3. 누적 공부시간 : {total_hours}시간 {total_minutes}분"
+            )
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        await user.send("DB 연결 실패")
 
 
 # ================================================ 서버 이벤트 ================================================
@@ -459,7 +528,7 @@ async def on_member_remove(member):
     handle_member_leave(member)
 
 
-# '공지' 명령어 입력 시 공지사항 출력 / '휴가신청' 입력 시 휴가신청
+# '공지' 명령어 입력 시 공지사항 출력 / '휴가신청' 입력 시 휴가신청 / '공부시간' 입력 시 공부시간 안내
 @client.event
 async def on_message(message):
     if message.content == "공지":
@@ -469,6 +538,30 @@ async def on_message(message):
             await message.channel.send(f"{message.author.mention}님, 공지사항은 [공지] 채널에서 볼 수 있어요!")
     if message.content == "휴가신청":
         await process_vacation_request(message) # 휴가신청 함수 호출
+    if message.content == "공부시간":
+        if isinstance(message.channel, discord.DMChannel):
+            connection = create_db_connection()
+            if connection:
+                cursor = connection.cursor(buffered=True)
+                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
+                result = cursor.fetchone()
+                if result:
+                    member_id = result[0]
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        period_id = result[0]
+                        await send_study_time_info(message.author, member_id, period_id)
+                    else:
+                        await message.author.send("활동 기간을 찾을 수 없습니다.")
+                else:
+                    await message.author.send("회원 정보를 찾을 수 없습니다.")
+                cursor.close()
+                connection.close()
+            else:
+                await message.author.send("DB 연결 실패")
+        else:
+            await message.channel.send(f"{message.author.mention}님, 채널이 아닌 [다이렉트 메시지]로 study bot에게 '공부시간'을 질문해보세요! 현재까지 공부한 시간을 알려드릴게요.")
 
 
 # 공부 시작 / 공부 종료 함수  -- 오류 해결때문에 각각 로그 추가!
