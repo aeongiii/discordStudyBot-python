@@ -423,6 +423,88 @@ def insert_vacation_log(member_id, period_id, member_display_name):
         print("DB 연결 실패")
         return False, None
     
+from discord.ext import tasks
+
+# ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
+
+# 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
+@tasks.loop(hours=24)
+async def send_daily_study_ranking():
+    await client.wait_until_ready()
+    if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
+        return  # 월요일은 일일 순위 표시 xxx
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            # 어제 공부한 멤버들의 공부시간 가져오기
+            cursor.execute("""
+                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
+                FROM activity_log a
+                JOIN member m ON a.member_id = m.member_id
+                WHERE a.log_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+                GROUP BY a.member_id
+                ORDER BY total_study_time DESC
+                LIMIT 10
+            """)
+            results = cursor.fetchall()
+
+            ranking_message = "======== 일일 공부시간 순위 ========\n"
+            for i, (nickname, total_study_time) in enumerate(results, start=1):
+                hours, minutes = divmod(total_study_time, 60)
+                ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
+
+            if not results:
+                ranking_message += "어제는 공부한 멤버가 없습니다.\n"
+
+            ch = client.get_channel(1239098139361808429)
+            await ch.send(ranking_message)
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+# 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
+@tasks.loop(weeks=1)
+async def send_weekly_study_ranking():
+    await client.wait_until_ready()
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            # 지난 주에 공부한 멤버들의 공부시간 가져오기
+            cursor.execute("""
+                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
+                FROM activity_log a
+                JOIN member m ON a.member_id = m.member_id
+                WHERE a.log_date BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) + 7 DAY) AND DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) + 1 DAY)
+                GROUP BY a.member_id
+                ORDER BY total_study_time DESC
+                LIMIT 10
+            """)
+            results = cursor.fetchall()
+
+            ranking_message = "======== 주간 공부시간 순위 ========\n"
+            for i, (nickname, total_study_time) in enumerate(results, start=1):
+                hours, minutes = divmod(total_study_time, 60)
+                ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
+
+            if not results:
+                ranking_message += "지난 주에는 공부한 멤버가 없습니다.\n"
+
+            ch = client.get_channel(1239098139361808429)
+            await ch.send(ranking_message)
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+   
 
 # ---------------------------------------- 내 정보 확인 함수 ----------------------------------------
 
@@ -511,7 +593,10 @@ client = discord.Client(intents = intents)
 async def on_ready():
     print("터미널에서 실행됨")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    check_absences.start()
+    check_absences.start()  # 결석체크 함수 예약
+    send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
+    send_weekly_study_ranking.change_interval(time=datetime.time(hour=0, minute=1))
+    send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
 
 # 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가 및 공지 출력
 @client.event
