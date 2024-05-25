@@ -151,7 +151,7 @@ def start_study_session(member_id, period_id, member_display_name):
         print("DB 연결 실패")
 
 
-# 공부 세션 종료 정보 업데이트
+# 공부 세션 종료 정보 업데이트 -- 평소에 그냥 카메라 off 하여 공부 종료할 경우
 async def end_study_session(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
@@ -219,8 +219,58 @@ async def end_study_session(member_id, period_id, member_display_name):
     else:
         print("DB 연결 실패")
         return False, None
-
     
+
+# 매일 11시 59분이 되면 공부 정보를 모두 저장함 + 0시 0분에 카메라 켜져있는 멤버 공부 시작시킴
+async def end_study_session_at_midnight():
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
+            # 현재 진행 중인 모든 세션을 종료
+            cursor.execute(
+                "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
+            )
+            results = cursor.fetchall()
+            for member_id, period_id in results:
+                await end_study_session(member_id, period_id, "자동 종료")
+
+            # 카메라가 켜져 있는 멤버들의 새로운 공부 세션 시작
+            cursor.execute(
+                """
+                SELECT DISTINCT ss.member_id, mp.period_id
+                FROM study_session ss
+                JOIN membership_period mp ON ss.member_id = mp.member_id
+                WHERE ss.session_end_time = %s AND mp.period_now_active = 1
+                """,
+                (end_time,)
+            )
+            member_ids = cursor.fetchall()
+            for member_id, period_id in member_ids:
+                start_study_session(member_id, period_id, "자동 시작")
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+# 자정에 end_study_session_at_midnight 함수 예약
+@tasks.loop(hours=24)
+async def schedule_midnight_tasks():
+    await client.wait_until_ready()
+    now = datetime.now(pytz.timezone('Asia/Seoul'))
+    target_time = now.replace(hour=23, minute=59, second=0, microsecond=0)
+    while True:
+        now = datetime.now(pytz.timezone('Asia/Seoul'))
+        if now >= target_time:
+            await end_study_session_at_midnight()
+            target_time = target_time + timedelta(days=1)
+        await asyncio.sleep(1)
 
 # ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
 # 멤버 결석 처리 함수
@@ -597,6 +647,7 @@ async def on_ready():
     send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
     send_weekly_study_ranking.change_interval(time=datetime.time(hour=0, minute=1))
     send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
+    schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
 
 # 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가 및 공지 출력
 @client.event
@@ -701,7 +752,74 @@ async def on_voice_state_update(member, before, after):
     else:
         print("DB 연결 실패")
 
-
+# 11:59가 되면 공부시간 저장
+async def end_study_session_at_midnight(member_id, period_id, member_display_name):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
+        try:
+            # 시작 시간 가져오기
+            cursor.execute(
+                "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
+                (member_id, period_id)
+            )
+            start_time_result = cursor.fetchone()
+            if start_time_result is None:
+                print(f"{member_display_name}님의 시작 시간이 등록되지 않았습니다.")
+                return False, None
+            start_time = start_time_result[0]
+            # 시작 시간이 datetime 객체가 아닌 경우 문자열로 변환
+            if isinstance(start_time, str):
+                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            else:
+                start_dt = start_time
+            end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+            duration = int((end_dt - start_dt).total_seconds() // 60)
+            # 종료 시간 및 기간 업데이트
+            cursor.execute(
+                "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
+                (end_time, duration, member_id, period_id)
+            )
+            connection.commit()
+            # 공부 시간이 5분 이상인 경우에만 activity_log 테이블의 log_study_time에 공부시간 누적
+            if duration >= 5:
+                # activity_log에 해당 날짜와 멤버의 레코드가 존재하는지 확인
+                log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+                cursor.execute(
+                    "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                    (member_id, period_id, log_date)
+                )
+                log_id = cursor.fetchone()
+                if log_id:
+                    # 이미 존재하는 레코드에 공부 시간 누적
+                    cursor.execute(
+                        "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
+                        (duration, log_id[0])
+                    )
+                else:
+                    # 새로운 레코드 삽입
+                    cursor.execute(
+                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
+                        (member_id, period_id, log_date, duration)
+                    )
+                message = f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
+                print(f"{member_display_name}님의 최근 공부 시간: {duration}분")
+            else:
+                message = f"{member_display_name}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
+                print(f"{member_display_name}님의 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
+            connection.commit()
+            return True, message
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+            return False, None
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+        return False, None
 
 
 
