@@ -5,6 +5,8 @@ import mysql.connector
 from mysql.connector import Error
 from datetime import datetime, timedelta
 import pytz
+import signal
+import sys
 
 # 데이터베이스 연결 설정
 def create_db_connection():
@@ -21,6 +23,108 @@ def create_db_connection():
         print(f"'{e}' 에러 발생")
         return None
     
+# ---------------------------------------- Heroku에서 24시간마다 서버 재시작함 :: 재시작 감지되면 직전까지의 데이터 저장하는 함수 ----------------------------------------
+    
+# 모든 세션 저장 함수
+def save_all_sessions():
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+            # 현재 진행 중인 모든 세션을 종료
+            cursor.execute(
+                "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
+            )
+            results = cursor.fetchall()
+            for member_id, period_id in results:
+                cursor.execute(
+                    "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
+                    (member_id, period_id)
+                )
+                start_time_result = cursor.fetchone()
+                if start_time_result:
+                    start_time = start_time_result[0]
+                    if isinstance(start_time, str):
+                        start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    else:
+                        start_dt = start_time
+                    end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    duration = int((end_dt - start_dt).total_seconds() // 60)
+                    cursor.execute(
+                        "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
+                        (end_time, duration, member_id, period_id)
+                    )
+                    if duration >= 5:
+                        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+                        cursor.execute(
+                            "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                            (member_id, period_id, log_date)
+                        )
+                        log_id = cursor.fetchone()
+                        if log_id:
+                            cursor.execute(
+                                "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
+                                (duration, log_id[0])
+                            )
+                        else:
+                            cursor.execute(
+                                "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
+                                (member_id, period_id, log_date, duration)
+                            )
+            connection.commit()
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+# Graceful Shutdown 핸들러 :: 재시작 감지되면 미리 DB에 저장 후 안전히 종료할 수 있도록 함
+def graceful_shutdown(signum, frame):
+    print("안전하게 종료중...")
+    save_all_sessions()
+    sys.exit(0)
+
+# 시그널 등록
+signal.signal(signal.SIGTERM, graceful_shutdown)
+signal.signal(signal.SIGINT, graceful_shutdown)  # 로컬 테스트를 위한 SIGINT 핸들러 추가
+
+
+# 봇이 재시작되었을 때 현재 카메라가 켜져있는 멤버들에 대해 새로운 세션을 시작하는 함수
+async def start_sessions_for_active_cameras():
+    await client.wait_until_ready()
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor(buffered=True)
+        try:
+            guild = client.get_guild(1238886734725648496) 
+            if guild:
+                for channel in guild.voice_channels:
+                    for member in channel.members:
+                        if member.self_video:  # 카메라가 켜져 있는지 확인
+                            cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
+                            result = cursor.fetchone()
+                            if result:
+                                member_id = result[0]
+                                cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                                result = cursor.fetchone()
+                                if result:
+                                    period_id = result[0]
+                                    start_study_session(member_id, period_id, member.display_name)
+                                    ch = client.get_channel(1239098139361808429)
+                                    await ch.send(f"{member.display_name}님 공부 시작!✏️")
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
 # ---------------------------------------- 서버 참여 / 서버 탈퇴 함수 ----------------------------------------
 
 # 멤버 정보 & 멤버십 기간 등록
@@ -648,6 +752,8 @@ async def on_ready():
     send_weekly_study_ranking.change_interval(time=datetime.time(hour=0, minute=1))
     send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
     schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
+    await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
+
 
 # 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가 및 공지 출력
 @client.event
