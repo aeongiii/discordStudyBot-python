@@ -954,6 +954,5 @@ async def end_study_session_at_midnight(member_id, period_id, member_display_nam
 
 
 
-
 # 봇 실행 토큰
 client.run('MTIzODg4MTY1ODMzODU0MTU3OA.G7Wkj9.P0PmbdQf7MmyTIjdJSfX4JOExa8U-E51-fMCh0')
