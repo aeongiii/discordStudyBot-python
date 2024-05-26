@@ -836,7 +836,7 @@ async def on_voice_state_update(member, before, after):
                 return  # 활동 기간 정보가 없으면 함수 종료
 
             cursor.close()
-            connection.close()
+            connection.close() 
 
             member_display_name = member.display_name
 
