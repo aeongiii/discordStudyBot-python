@@ -1,13 +1,18 @@
 import os
+from dotenv import load_dotenv
 import discord
 from discord.ext import commands, tasks
 import asyncio
 import mysql.connector
 from mysql.connector import Error
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta
 import pytz
 import signal
 import sys
+
+
+# .env 파일의 환경 변수를 로드 (로컬에서 토큰 가져오기)
+load_dotenv()
 
 # Heroku 환경 변수에서 토큰 가져오기
 token = os.getenv('TOKEN')
