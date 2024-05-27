@@ -626,7 +626,7 @@ async def send_daily_study_ranking():
         print("DB 연결 실패")
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-@tasks.loop(weeks=1)
+@tasks.loop(hours=168)  # 168 hours = 1 week
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     connection = create_db_connection()
