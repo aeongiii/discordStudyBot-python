@@ -932,31 +932,5 @@ async def end_study_session_at_midnight(member_id, period_id, member_display_nam
         return False, None
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # 봇 실행 토큰
-client.run('token')
+client.run(token)
