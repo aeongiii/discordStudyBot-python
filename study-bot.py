@@ -1,3 +1,4 @@
+import os
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -7,6 +8,9 @@ from datetime import datetime, timedelta
 import pytz
 import signal
 import sys
+
+# Heroku 환경 변수에서 토큰 가져오기
+token = os.getenv('TOKEN')
 
 # 데이터베이스 연결 설정
 def create_db_connection():
@@ -955,4 +959,4 @@ async def end_study_session_at_midnight(member_id, period_id, member_display_nam
 
 
 # 봇 실행 토큰
-client.run('MTIzODg4MTY1ODMzODU0MTU3OA.G7Wkj9.P0PmbdQf7MmyTIjdJSfX4JOExa8U-E51-fMCh0')
+client.run('token')
