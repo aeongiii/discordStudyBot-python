@@ -5,7 +5,7 @@ from discord.ext import commands, tasks
 import asyncio
 import mysql.connector
 from mysql.connector import Error
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta, time
 import pytz
 import signal
 import sys
@@ -24,9 +24,9 @@ database_url = os.getenv('DATABASE_URL')
 # PostgreSQL 데이터베이스 연결 설정 -- 기존 mariaDB에서 PostgreSQL로 변경
 def create_db_connection():
     try:
-        connection = psycopg2.connect(os.getenv('DATABASE_URL'))  # .env 파일에 username, password, hostname, port, database 정보가 들어있음.
+        connection = psycopg2.connect(os.getenv('DATABASE_URL'))
         return connection
-    except Error as e:
+    except Exception as e:
         print(f"Error: '{e}'")
         return None
 
@@ -738,7 +738,7 @@ async def on_ready():
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
     check_absences.start()  # 결석체크 함수 예약
     send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
-    send_weekly_study_ranking.change_interval(time=datetime.time(0, 1))
+    send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
     send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
     schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
