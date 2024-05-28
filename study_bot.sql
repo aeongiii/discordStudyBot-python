@@ -1,5 +1,5 @@
 -- 데이터베이스를 UTF-8로 설정
-ALTER DATABASE study_bot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+ALTER DATABASE CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 -- 기존 테이블을 UTF-8로 변경
 ALTER TABLE member CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
