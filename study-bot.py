@@ -24,17 +24,12 @@ database_url = os.getenv('DATABASE_URL')
 # PostgreSQL 데이터베이스 연결 설정 -- 기존 mariaDB에서 PostgreSQL로 변경
 def create_db_connection():
     try:
-        connection = psycopg2.connect(
-            host='ce0lkuo944ch99.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com',
-            database='d9uk3tptn9ivfn',
-            user='u3i4p998vtnvde',
-            password='p55e9fa521c16c60f301987cbcd0030444b1485da71c08bff4265147ee08b61e3',
-            port='5432'
-        )
+        connection = psycopg2.connect(os.getenv('DATABASE_URL'))  # .env 파일에 username, password, hostname, port, database 정보가 들어있음.
         return connection
-    except Error as e:
-        print(f"Error: '{e}'")
+    except psycopg2.Error as db_error:
+        print(f"Database connection error: '{db_error}'")
         return None
+
     
 # ---------------------------------------- Heroku에서 24시간마다 서버 재시작함 :: 재시작 감지되면 직전까지의 데이터 저장하는 함수 ----------------------------------------
     
