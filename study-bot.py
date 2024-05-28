@@ -738,7 +738,7 @@ async def on_ready():
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
     check_absences.start()  # 결석체크 함수 예약
     send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
-    send_weekly_study_ranking.change_interval(time=datetime.time(hour=0, minute=1))
+    send_weekly_study_ranking.change_interval(time=datetime.time(0, 1))
     send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
     schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
