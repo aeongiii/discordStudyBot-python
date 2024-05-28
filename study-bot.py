@@ -1,5 +1,5 @@
 import os
-from dotenv import load_dotenv
+from dotenv import load_dotenv  # .env 파일에서 토큰 가져오지
 import discord
 from discord.ext import commands, tasks
 import asyncio
@@ -9,27 +9,31 @@ from datetime import datetime, time, timedelta
 import pytz
 import signal
 import sys
+import psycopg2  # Heroku Postgres 연결
+from psycopg2 import Error  
 
 
-# .env 파일의 환경 변수를 로드 (로컬에서 토큰 가져오기)
+# .env 파일애서 토큰 가져오기 (로컬 테스트 시 사용)
 load_dotenv()
 
 # Heroku 환경 변수에서 토큰 가져오기
 token = os.getenv('TOKEN')
+database_url = os.getenv('DATABASE_URL')
+    
 
-# 데이터베이스 연결 설정
+# PostgreSQL 데이터베이스 연결 설정 -- 기존 mariaDB에서 PostgreSQL로 변경
 def create_db_connection():
     try:
-        connection = mysql.connector.connect(
-            host='127.0.0.1',  # 또는 'localhost' 그대로 유지
-            user='root',
-            password='0626',
-            database='study_bot',
-            port=3307  # 사용 중인 포트 번호 추가
+        connection = psycopg2.connect(
+            host='ce0lkuo944ch99.cluster-czrs8kj4isg7.us-east-1.rds.amazonaws.com',
+            database='d9uk3tptn9ivfn',
+            user='u3i4p998vtnvde',
+            password='p55e9fa521c16c60f301987cbcd0030444b1485da71c08bff4265147ee08b61e3',
+            port='5432'
         )
         return connection
     except Error as e:
-        print(f"'{e}' 에러 발생")
+        print(f"Error: '{e}'")
         return None
     
 # ---------------------------------------- Heroku에서 24시간마다 서버 재시작함 :: 재시작 감지되면 직전까지의 데이터 저장하는 함수 ----------------------------------------
@@ -38,10 +42,10 @@ def create_db_connection():
 def save_all_sessions():
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
-            # 현재 진행 중인 모든 세션을 종료
+            # 현재 진행 중이ㄴ 모든 세션 종료
             cursor.execute(
                 "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
             )
@@ -54,10 +58,7 @@ def save_all_sessions():
                 start_time_result = cursor.fetchone()
                 if start_time_result:
                     start_time = start_time_result[0]
-                    if isinstance(start_time, str):
-                        start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-                    else:
-                        start_dt = start_time
+                    start_dt = start_time if isinstance(start_time, datetime) else datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
                     end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
                     duration = int((end_dt - start_dt).total_seconds() // 60)
                     cursor.execute(
@@ -108,7 +109,7 @@ async def start_sessions_for_active_cameras():
     await client.wait_until_ready()
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             guild = client.get_guild(1238886734725648496) 
             if guild:
@@ -139,29 +140,23 @@ async def start_sessions_for_active_cameras():
 # 멤버 정보 & 멤버십 기간 등록
 def insert_member_and_period(member):
     connection = create_db_connection()
-
     if connection:
-        cursor = connection.cursor(buffered=True)  # buffered=True 추가 : 쿼리문 처리가 끝나기 전에 다음 쿼리문이 실행되는 문제 수정
-        
+        cursor = connection.cursor()
         try:
             # 멤버 정보가 이미 존재하는지 확인
             cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
             result = cursor.fetchone()
             if result:
                 member_id = result[0]
-                print(f"[{member.display_name}] 해당 멤버가 이미 등록되어 있습니다. [ID : {member_id}]")
-                # 기존 멤버가 있으면 현재 활성화된 기간을 비활성화하고 새로운 기간을 등록
+                # 현재 멤버가 있으면 기존 활동기간을 종료하고 새로운 활동 기간 등록
                 cursor.execute(
-                    "UPDATE membership_period SET period_now_active = 0, period_end_date = %s WHERE member_id = %s AND period_now_active = 1",
-                    (datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), member_id)
+                    "UPDATE membership_period SET period_now_active = %s, period_end_date = %s WHERE member_id = %s AND period_now_active = %s",
+                    (False, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), member_id, True)
                 )
-                cursor.close()
-                cursor = connection.cursor(buffered=True)
                 cursor.execute(
                     "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
-                    (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), 1)
+                    (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), True)
                 )
-
             else:
                 # 멤버 정보 삽입
                 join_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
@@ -169,16 +164,14 @@ def insert_member_and_period(member):
                     "INSERT INTO member (member_nickname, member_username, member_join_date) VALUES (%s, %s, %s)",
                     (member.display_name, str(member), join_date)
                 )
-                member_id = cursor.lastrowid
-                print(f"새로운 멤버 [{member.display_name}]가 등록되었습니다. [ID : {member_id}]")
-
-                # 새 멤버 등록 후 membership_period 테이블에 기간 등록
+                # 새 member 등록 했으면 membership_period에도 등록
+                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
+                member_id = cursor.fetchone()[0]
                 cursor.execute(
                     "INSERT INTO membership_period (member_id, period_start_date, period_now_active) VALUES (%s, %s, %s)",
-                    (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), 1)
+                    (member_id, datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d'), True)
                 )
             connection.commit()
-            print(f"[{member.display_name}] 해당 멤버의 멤버십이 시작되었습니다.")
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
@@ -189,12 +182,13 @@ def insert_member_and_period(member):
         print("DB 연결 실패")
 
 
+
 # 멤버 탈퇴 처리
 def handle_member_leave(member):
     connection = create_db_connection()
 
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         leave_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
 
         try:
@@ -268,60 +262,49 @@ def start_study_session(member_id, period_id, member_display_name):
 async def end_study_session(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
         try:
-            # 시작 시간 가져오기
+            # 공부 시작 시간 가져오기
             cursor.execute(
                 "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
                 (member_id, period_id)
             )
             start_time_result = cursor.fetchone()
             if start_time_result is None:
-                print(f"{member_display_name}님의 시작 시간이 등록되지 않았습니다.")
                 return False, None
             start_time = start_time_result[0]
-            # 시작 시간이 datetime 객체가 아닌 경우 문자열로 변환
-            if isinstance(start_time, str):
-                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-            else:
-                start_dt = start_time
+            start_dt = start_time if isinstance(start_time, datetime) else datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
             end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             duration = int((end_dt - start_dt).total_seconds() // 60)
-            # 종료 시간 및 기간 업데이트
+            # 종료 시간 업데이트
             cursor.execute(
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
                 (end_time, duration, member_id, period_id)
             )
-            connection.commit()
-            # 공부 시간이 5분 이상인 경우에만 activity_log 테이블의 log_study_time에 공부시간 누적
+            # 5분 이상인 경우에만 인정해줌
             if duration >= 5:
-                # activity_log에 해당 날짜와 멤버의 레코드가 존재하는지 확인
                 log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+                # activity_log 테이블에 이미 해당 멤버 + 해당 날짜의 데이터 존재하면 업데이트
                 cursor.execute(
                     "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
                     (member_id, period_id, log_date)
                 )
                 log_id = cursor.fetchone()
+                # 이미 존재할 경우 공부시간만 업데이트
                 if log_id:
-                    # 이미 존재하는 레코드에 공부 시간 누적
                     cursor.execute(
                         "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
                         (duration, log_id[0])
                     )
                 else:
-                    # 새로운 레코드 삽입
+                    # activity_log에 데이터 없으면 새로 생성
                     cursor.execute(
                         "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
                         (member_id, period_id, log_date, duration)
                     )
-                message = f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
-                print(f"{member_display_name}님의 최근 공부 시간: {duration}분")
-            else:
-                message = f"{member_display_name}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
-                print(f"{member_display_name}님의 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
             connection.commit()
-            return True, message
+            return True, f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
@@ -330,15 +313,15 @@ async def end_study_session(member_id, period_id, member_display_name):
             cursor.close()
             connection.close()
     else:
-        print("DB 연결 실패")
         return False, None
+
     
 
 # 매일 11시 59분이 되면 공부 정보를 모두 저장함 + 0시 0분에 카메라 켜져있는 멤버 공부 시작시킴
 async def end_study_session_at_midnight():
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
             # 현재 진행 중인 모든 세션을 종료
@@ -390,7 +373,7 @@ async def schedule_midnight_tasks():
 def process_absence(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         absence_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
 
         try:
@@ -438,7 +421,7 @@ def get_risk_level(absence_count):
 async def check_absences():
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
             cursor.execute("""
@@ -507,7 +490,7 @@ async def process_vacation_request(message):
     if message.channel.id == 1238896271939338282:  # [휴가신청] 채널
         connection = create_db_connection()
         if connection:
-            cursor = connection.cursor(buffered=True)
+            cursor = connection.cursor()
             try:
                 cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
                 result = cursor.fetchone()
@@ -515,7 +498,8 @@ async def process_vacation_request(message):
                     member_id = result[0]
                     cursor.close()
 
-                    cursor = connection.cursor(buffered=True)  # period_id 조회
+                    cursor = connection.cursor()  
+                    # period_id 조회
                     cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
                     result = cursor.fetchone()
                     if result:
@@ -542,7 +526,7 @@ async def process_vacation_request(message):
 def insert_vacation_log(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         vacation_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
         vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
 
@@ -598,14 +582,14 @@ async def send_daily_study_ranking():
         return  # 월요일은 일일 순위 표시 xxx
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
-            # 어제 공부한 멤버들의 공부시간 가져오기
+            # 어제 공부한 멤버들의 공부시간 가져오기  - PostgreSQL 형식으로 바꿈. CURDATE() 대신 CURRENT_DATE
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date = DATE_SUB(CURDATE(), INTERVAL 1 DAY)
+                WHERE a.log_date = CURRENT_DATE - INTERVAL '1 day'
                 GROUP BY a.member_id
                 ORDER BY total_study_time DESC
                 LIMIT 10
@@ -630,20 +614,21 @@ async def send_daily_study_ranking():
     else:
         print("DB 연결 실패")
 
+
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
 @tasks.loop(hours=168)  # 168 hours = 1 week 이니까.
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date BETWEEN DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) + 7 DAY) AND DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) + 1 DAY)
+                WHERE a.log_date BETWEEN CURRENT_DATE - INTERVAL '7 days' AND CURRENT_DATE - INTERVAL '1 day'
                 GROUP BY a.member_id
                 ORDER BY total_study_time DESC
                 LIMIT 10
@@ -675,7 +660,7 @@ async def send_weekly_study_ranking():
 async def send_study_time_info(user, member_id, period_id):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             # 오늘 공부시간
             cursor.execute(
@@ -794,7 +779,7 @@ async def on_message(message):
         if isinstance(message.channel, discord.DMChannel):
             connection = create_db_connection()
             if connection:
-                cursor = connection.cursor(buffered=True)
+                cursor = connection.cursor()
                 cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
                 result = cursor.fetchone()
                 if result:
@@ -822,7 +807,7 @@ async def on_voice_state_update(member, before, after):
     ch = client.get_channel(1239098139361808429)
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         try:
             # 멤버 정보 가져오기
             cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
@@ -871,7 +856,7 @@ async def on_voice_state_update(member, before, after):
 async def end_study_session_at_midnight(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
-        cursor = connection.cursor(buffered=True)
+        cursor = connection.cursor()
         end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
         try:
             # 시작 시간 가져오기
