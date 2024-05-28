@@ -26,8 +26,8 @@ def create_db_connection():
     try:
         connection = psycopg2.connect(os.getenv('DATABASE_URL'))  # .env 파일에 username, password, hostname, port, database 정보가 들어있음.
         return connection
-    except psycopg2.Error as db_error:
-        print(f"Database connection error: '{db_error}'")
+    except Error as e:
+        print(f"Error: '{e}'")
         return None
 
     
