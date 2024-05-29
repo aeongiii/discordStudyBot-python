@@ -434,10 +434,12 @@ async def check_absences():
                     member_username = result[1]
                     process_absence(member_id, 1, member_username)  # period_id 값을 1로 가정
 
-            # 결석 3회 이상인 멤버 검색
-            cursor.execute(
-                "SELECT member_id, member_username FROM churn_prediction WHERE prediction_absence_count >= 3 AND DATE(prediction_date) <= DATE_SUB(NOW(), INTERVAL 1 DAY)"
-            )
+            # 결석 3회 이상인 멤버 검색.. 제발 오류뜨지마라
+            cursor.execute("""
+                SELECT member_id, member_username FROM churn_prediction 
+                WHERE prediction_absence_count >= 3 
+                AND prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
+            """)
             results = cursor.fetchall()
 
             if results:
@@ -474,6 +476,7 @@ async def check_absences():
             connection.close()
     else:
         print("DB 연결 실패")
+
 
 
 
@@ -624,7 +627,7 @@ async def send_weekly_study_ranking():
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
                 WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
-                GROUP BY m.member_nickname
+                GROUP BY m.member_nickname, a.member_id
                 ORDER BY total_study_time DESC
                 LIMIT 10
             """)
