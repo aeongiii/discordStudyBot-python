@@ -422,8 +422,8 @@ async def check_absences():
             cursor.execute("""
                 SELECT m.member_id, m.member_username
                 FROM member m
-                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURDATE()
-                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURDATE()
+                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE
+                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURRENT_DATE
                 WHERE v.member_id IS NULL AND s.member_id IS NULL
             """)
             results = cursor.fetchall()
@@ -659,7 +659,7 @@ async def send_study_time_info(user, member_id, period_id):
         try:
             # 오늘 공부시간
             cursor.execute(
-                "SELECT log_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = CURDATE()",
+                "SELECT log_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = CURRENT_DATE",
                 (member_id, period_id)
             )
             today_study_time = cursor.fetchone()
@@ -673,8 +673,8 @@ async def send_study_time_info(user, member_id, period_id):
                 """
                 SELECT SUM(log_study_time) FROM activity_log
                 WHERE member_id = %s AND period_id = %s
-                AND log_date >= DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)
-                AND log_date <= CURDATE()
+                AND log_date >= DATE_SUB(CURRENT_DATE, INTERVAL WEEKDAY(CURRENT_DATE) DAY)
+                AND log_date <= CURRENT_DATE
                 """,
                 (member_id, period_id)
             )
