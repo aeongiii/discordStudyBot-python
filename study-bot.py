@@ -1,4 +1,5 @@
 import os
+import sys
 from dotenv import load_dotenv  # .env 파일에서 토큰 가져오지
 import discord
 from discord.ext import commands, tasks
@@ -8,7 +9,6 @@ from mysql.connector import Error
 from datetime import datetime, timedelta, time
 import pytz
 import signal
-import sys
 import psycopg2  # Heroku Postgres 연결
 from psycopg2 import Error  
 
