@@ -277,7 +277,11 @@ async def end_study_session(member_id, period_id, member_display_name):
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
                 (end_time, duration, member_id, period_id)
             )
-            # 5분 이상인 경우에만 인정해줌
+
+            connection.commit()  # 이부분 추가 !!!!!
+            ch = client.get_channel(1239098139361808429)   # 이부분 추가 !!!!!
+
+            # 공부시간 5분 이상인 경우에만 인정해줌
             if duration >= 5:
                 log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
                 # activity_log 테이블에 이미 해당 멤버 + 해당 날짜의 데이터 존재하면 업데이트
@@ -298,8 +302,11 @@ async def end_study_session(member_id, period_id, member_display_name):
                         "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
                         (member_id, period_id, log_date, duration)
                     )
-            connection.commit()
-            return True, f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
+                connection.commit()
+                await ch.send(f"{member_display_name}님 {duration}분 동안 공부했습니다!👍")
+            else:
+                await ch.send(f"{member_display_name}님 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
+            return True, None
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
