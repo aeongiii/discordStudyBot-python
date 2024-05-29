@@ -579,13 +579,13 @@ async def send_daily_study_ranking():
     if connection:
         cursor = connection.cursor()
         try:
-            # 어제 공부한 멤버들의 공부시간 가져오기  - PostgreSQL 형식으로 바꿈. CURDATE() 대신 CURRENT_DATE
+            # 어제 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
                 WHERE a.log_date = CURRENT_DATE - INTERVAL '1 day'
-                GROUP BY a.member_id
+                GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
                 LIMIT 10
             """)
@@ -623,8 +623,8 @@ async def send_weekly_study_ranking():
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date BETWEEN CURRENT_DATE - INTERVAL '7 days' AND CURRENT_DATE - INTERVAL '1 day'
-                GROUP BY a.member_id
+                WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
+                GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
                 LIMIT 10
             """)
