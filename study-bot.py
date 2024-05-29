@@ -674,7 +674,7 @@ async def send_study_time_info(user, member_id, period_id):
                 """
                 SELECT SUM(log_study_time) FROM activity_log
                 WHERE member_id = %s AND period_id = %s
-                AND log_date >= CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)
+                AND log_date >= CURRENT_DATE - INTERVAL '1 day' * EXTRACT(DOW FROM CURRENT_DATE)
                 AND log_date <= CURRENT_DATE
                 """,  # 현재의 요일을 숫자 0~6으로 반환. [0 = 일, 1 = 월, ... 6 = 토]
                 (member_id, period_id)
