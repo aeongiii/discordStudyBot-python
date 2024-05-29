@@ -110,7 +110,7 @@ async def start_sessions_for_active_cameras():
             if guild:
                 for channel in guild.voice_channels:
                     for member in channel.members:
-                        if member.self_video:  # 카메라가 켜져 있는지 확인
+                        if member.voice.self_video:  # 카메라가 켜져 있는지 확인
                             cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(member),))
                             result = cursor.fetchone()
                             if result:
