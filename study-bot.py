@@ -529,7 +529,6 @@ def insert_vacation_log(member_id, period_id, member_display_name):
         vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
 
         try:
-
             # 이번 주에 이미 휴가를 사용했는지 확인
             cursor.execute(
                 "SELECT vacation_date FROM vacation_log WHERE member_id = %s AND period_id = %s AND vacation_week_start = %s",
@@ -548,14 +547,14 @@ def insert_vacation_log(member_id, period_id, member_display_name):
 
             # activity_log 테이블에 출석 기록 추가 또는 업데이트
             cursor.execute(
-                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON DUPLICATE KEY UPDATE log_attendance = VALUES(log_attendance)",
+                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance",
                 (member_id, period_id, vacation_date, 0, 0, 0, True)
             )
 
             connection.commit()
             print(f"{member_display_name}님의 휴가신청 완료되었습니다. [날짜 : {vacation_date}]")
             return True, f"{member_display_name}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
-            
+
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
@@ -568,7 +567,6 @@ def insert_vacation_log(member_id, period_id, member_display_name):
         print("DB 연결 실패")
         return False, None
     
-from discord.ext import tasks
 
 # ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
 
@@ -676,9 +674,9 @@ async def send_study_time_info(user, member_id, period_id):
                 """
                 SELECT SUM(log_study_time) FROM activity_log
                 WHERE member_id = %s AND period_id = %s
-                AND log_date >= DATE_SUB(CURRENT_DATE, INTERVAL WEEKDAY(CURRENT_DATE) DAY)
+                AND log_date >= CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE)
                 AND log_date <= CURRENT_DATE
-                """,
+                """,  # 현재의 요일을 숫자 0~6으로 반환. [0 = 일, 1 = 월, ... 6 = 토]
                 (member_id, period_id)
             )
             week_study_time = cursor.fetchone()
