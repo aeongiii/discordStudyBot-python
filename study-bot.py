@@ -115,7 +115,7 @@ async def start_sessions_for_active_cameras():
                             result = cursor.fetchone()
                             if result:
                                 member_id = result[0]
-                                cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                                cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
                                 result = cursor.fetchone()
                                 if result:
                                     period_id = result[0]
@@ -194,7 +194,7 @@ def handle_member_leave(member):
                 member_id = result[0]
                 # 현재 활성화된 기간을 비활성화하고 종료 날짜 업데이트
                 cursor.execute(
-                    "UPDATE membership_period SET period_now_active = 0, period_end_date = %s WHERE member_id = %s AND period_now_active = 1",
+                    "UPDATE membership_period SET period_now_active = 0, period_end_date = %s WHERE member_id = %s AND period_now_active = TRUE",
                     (leave_date, member_id)
                 )
                 connection.commit()
@@ -333,7 +333,7 @@ async def end_study_session_at_midnight():
                 SELECT DISTINCT ss.member_id, mp.period_id
                 FROM study_session ss
                 JOIN membership_period mp ON ss.member_id = mp.member_id
-                WHERE ss.session_end_time = %s AND mp.period_now_active = 1
+                WHERE ss.session_end_time = %s AND mp.period_now_active = TRUE
                 """,
                 (end_time,)
             )
@@ -495,7 +495,7 @@ async def process_vacation_request(message):
 
                     cursor = connection.cursor()  
                     # period_id 조회
-                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
                     result = cursor.fetchone()
                     if result:
                         period_id = result[0]
@@ -779,7 +779,7 @@ async def on_message(message):
                 result = cursor.fetchone()
                 if result:
                     member_id = result[0]
-                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE",(member_id,))
                     result = cursor.fetchone()
                     if result:
                         period_id = result[0]
@@ -815,7 +815,7 @@ async def on_voice_state_update(member, before, after):
                 return  # 멤버 정보가 없으면 함수 종료
 
             # 활동 기간 ID 가져오기
-            cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = 1", (member_id,))
+            cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
             result = cursor.fetchone()
             if result:
                 period_id = result[0]
