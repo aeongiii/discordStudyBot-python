@@ -11,6 +11,7 @@ import pytz
 import signal
 import psycopg2  # Heroku Postgres 연결
 from psycopg2 import Error  
+from apscheduler.schedulers.asyncio import AsyncIOScheduler # 실제 시간에 따른 작업 관리하기
 
 
 # .env 파일애서 토큰 가져오기 (로컬 테스트 시 사용)
@@ -19,8 +20,10 @@ load_dotenv()
 # Heroku 환경 변수에서 토큰 가져오기
 token = os.getenv('TOKEN')
 database_url = os.getenv('DATABASE_URL')
-    
 
+# 스케줄러 설정 :: 실제 한국 시간에 따라 일간/주간 공부순위 안내하는 함수 예약 시 사용
+scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
+    
 # PostgreSQL 데이터베이스 연결 설정 -- 기존 mariaDB에서 PostgreSQL로 변경
 def create_db_connection():
     try:
@@ -357,18 +360,10 @@ async def end_study_session_at_midnight():
         print("DB 연결 실패")
 
 
-# 자정에 end_study_session_at_midnight 함수 예약
-@tasks.loop(hours=24)
+# 자정에 end_study_session_at_midnight 함수 예약  : 자정까지의 내용을 모두 저장.
+@scheduler.scheduled_job('cron', hour=0, minute=0)
 async def schedule_midnight_tasks():
-    await client.wait_until_ready()
-    now = datetime.now(pytz.timezone('Asia/Seoul'))
-    target_time = now.replace(hour=23, minute=59, second=0, microsecond=0)
-    while True:
-        now = datetime.now(pytz.timezone('Asia/Seoul'))
-        if now >= target_time:
-            await end_study_session_at_midnight()
-            target_time = target_time + timedelta(days=1)
-        await asyncio.sleep(1)
+    await end_study_session_at_midnight()
 
 # ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
 # 멤버 결석 처리 함수
@@ -418,8 +413,8 @@ def get_risk_level(absence_count):
     else:
         return 'High'
     
-# 매일 0시에 전날 결석 체크 + 결석 3회 시 익일에 탈퇴 처리
-@tasks.loop(hours=24)  # 실제 코드에서는 hour=24로 변경
+# 매일 0시에 결석 체크 + 익일에 탈퇴 처리
+@scheduler.scheduled_job('cron', hour=0, minute=0)
 async def check_absences():
     connection = create_db_connection()
     if connection:
@@ -578,7 +573,7 @@ def insert_vacation_log(member_id, period_id, member_display_name):
 # ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
 
 # 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
-@tasks.loop(hours=24)
+@scheduler.scheduled_job('cron', hour=0, minute=0)
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
@@ -619,7 +614,7 @@ async def send_daily_study_ranking():
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-@tasks.loop(hours=168)  # 168 hours = 1 week 이니까.
+@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0)
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     connection = create_db_connection()
@@ -744,10 +739,10 @@ client = discord.Client(intents = intents)
 async def on_ready():
     print("터미널에서 실행됨")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    check_absences.start()  # 결석체크 함수 예약
-    send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
-    send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
-    send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
+    # check_absences.start()  # 결석체크 함수 예약
+    # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
+    # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
+    # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
     schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
