@@ -366,8 +366,8 @@ async def schedule_midnight_tasks():
     await end_study_session_at_midnight()
 
 # ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
-# 멤버 결석 처리 함수
-def process_absence(member_id, period_id, member_display_name):
+# 멤버 결석 처리 함수 -- 결석 시 안내 // 결석 3회 시 안내 후 탈퇴처리 (다이렉트 메세지로)
+async def process_absence(member_id, period_id, member_display_name):
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
@@ -390,19 +390,31 @@ def process_absence(member_id, period_id, member_display_name):
             connection.commit()
             print(f"{member_display_name}님의 결석이 기록되었습니다. 결석 일수: {absence_count}")
 
-            # 결석 일수가 3일 이상인 경우 안내 메시지 반환
+            # 1회, 2회 결석한 경우 - 결석 기록 안내 다이렉트 메시지 전송
+            user = discord.utils.get(client.get_all_members(), id=member_id)
+            if user:
+                try:
+                    await user.send(f"{member_display_name}님, 결석이 기록되었습니다. 현재 {absence_count}회 결석하셨습니다.")
+                except discord.Forbidden:
+                    print(f"DM을 보낼 수 없습니다: {member_display_name}")
+
+            # 3회 결석한 경우 - 탈퇴 예정 안내 다이렉트 메시지 전송
             if absence_count >= 3:
-                return f"{member_display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻"
+                if user:
+                    try:
+                        await user.send(f"{member_display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
+                    except discord.Forbidden:
+                        print(f"DM을 보낼 수 없습니다: {member_display_name}")
+
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-            return None
         finally:
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
-        return None
+
     
 # 결석일수에 따라 이탈 위험 수준 결정
 def get_risk_level(absence_count):
@@ -434,9 +446,10 @@ async def check_absences():
                 for result in results:
                     member_id = result[0]
                     member_username = result[1]
-                    process_absence(member_id, 1, member_username)  # period_id 값을 1로 가정
+                    user = discord.utils.get(client.get_all_members(), id=member_id)
+                    await process_absence(member_id, 1, member_username)  # period_id 값을 1로 가정
 
-            # 결석 3회 이상인 멤버 검색.. 제발 오류뜨지마라
+            # 결석 3회 이상인 멤버 검색
             cursor.execute("""
                 SELECT member_id, member_username FROM churn_prediction 
                 WHERE prediction_absence_count >= 3 
@@ -448,10 +461,10 @@ async def check_absences():
                 for result in results:
                     member_id = result[0]
                     member_username = result[1]
-                    user = discord.utils.get(client.get_all_members(), name=member_username)
+                    user = discord.utils.get(client.get_all_members(), id=member_id)
                     if user:
                         try:
-                            await user.send(f"{user.display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
+                            await user.send(f"{member_username}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
                         except discord.Forbidden:
                             print(f"DM을 보낼 수 없습니다: {member_username}")
 
@@ -463,7 +476,7 @@ async def check_absences():
                     member_username = result[1]
                     guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
                     if guild:
-                        member = discord.utils.get(guild.members, name=member_username)
+                        member = discord.utils.get(guild.members, id=member_id)
                         if member:
                             await guild.kick(member, reason="스터디 조건 미달")
                         else:
