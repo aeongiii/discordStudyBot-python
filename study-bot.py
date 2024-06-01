@@ -93,7 +93,7 @@ def save_all_sessions():
 
 # Graceful Shutdown 핸들러 :: 재시작 감지되면 미리 DB에 저장 후 안전히 종료할 수 있도록 함
 def graceful_shutdown(signum, frame):
-    print("안전하게 종료중...")
+    print("Heroku 재부팅 감지됨. 안전하게 종료 중...")
     save_all_sessions()
     sys.exit(0)
 
@@ -363,6 +363,7 @@ async def end_study_session_at_midnight():
 # 자정에 end_study_session_at_midnight 함수 예약  : 자정까지의 내용을 모두 저장.
 @scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def schedule_midnight_tasks():
+    print("자정 재부팅 시작. 안전하게 종료 중...")
     await end_study_session_at_midnight()
 
 # ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
