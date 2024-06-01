@@ -361,7 +361,7 @@ async def end_study_session_at_midnight():
 
 
 # 자정에 end_study_session_at_midnight 함수 예약  : 자정까지의 내용을 모두 저장.
-@scheduler.scheduled_job('cron', hour=0, minute=0)
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def schedule_midnight_tasks():
     await end_study_session_at_midnight()
 
@@ -591,7 +591,7 @@ def insert_vacation_log(member_id, period_id, member_display_name):
 # ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
 
 # 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
-@scheduler.scheduled_job('cron', hour=0, minute=0)
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
@@ -632,7 +632,7 @@ async def send_daily_study_ranking():
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0)
+@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     connection = create_db_connection()
@@ -755,7 +755,7 @@ client = discord.Client(intents = intents)
 # 봇이 실행중일 때 상태메시지
 @client.event
 async def on_ready():
-    print("터미널에서 실행됨")
+    print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
     scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
             # check_absences.start()  # 결석체크 함수 예약
