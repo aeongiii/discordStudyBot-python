@@ -528,7 +528,8 @@ def insert_vacation_log(member_id, period_id, member_display_name):
     if connection:
         cursor = connection.cursor()
         vacation_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-        vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
+        today = datetime.now(pytz.timezone('Asia/Seoul'))
+        vacation_week_start = (today - timedelta(days=today.weekday())).strftime('%Y-%m-%d')
 
         try:
             # 이번 주에 이미 휴가를 사용했는지 확인
@@ -549,7 +550,12 @@ def insert_vacation_log(member_id, period_id, member_display_name):
 
             # activity_log 테이블에 출석 기록 추가 또는 업데이트
             cursor.execute(
-                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance",
+                """
+                INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance)
+                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (member_id, period_id, log_date)
+                DO UPDATE SET log_attendance = EXCLUDED.log_attendance
+                """,
                 (member_id, period_id, vacation_date, 0, 0, 0, True)
             )
 
@@ -560,14 +566,13 @@ def insert_vacation_log(member_id, period_id, member_display_name):
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-            return False, None
+            return False, f"휴가 신청 중 오류가 발생했습니다: {str(e)}"
 
         finally:
             cursor.close()
             connection.close()
     else:
-        print("DB 연결 실패")
-        return False, None
+        return False, "DB 연결 실패"
     
 
 # ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
