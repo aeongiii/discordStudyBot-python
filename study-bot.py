@@ -739,6 +739,8 @@ intents.message_content = True  # 메시지 내용에 접근
 intents.guilds = True  # 채널
 intents.voice_states = True #음성 상태 정보 갱신
 intents.members = True  # 멤버 관련 이벤트 처리 활성화
+intents.presences = True  # 멤버의 상태 변화 감지 활성화
+intents.reactions = True  # 반응 관련 이벤트 처리 활성화
 
 # 봇 클라이언트 설정
 client = discord.Client(intents = intents)
