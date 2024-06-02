@@ -841,8 +841,24 @@ async def on_message(message):
     if message.author == client.user:
         return  # 봇 자신의 메시지는 무시
 
-    member_id = message.author.id
-    log_message_count(member_id)  # 메시지 전송 횟수 로그 함수 호출
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
+            result = cursor.fetchone()
+            if result:
+                member_id = result[0]
+                log_message_count(member_id)  # 메시지 전송 횟수 로그 함수 호출
+            else:
+                print(f"Member {message.author} not found in the database.")
+        except Exception as e:
+            print(f"Error fetching member ID: {e}")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
 
     if message.content == "공지":
         if message.channel.id == 1238886734725648499: # [공지]채널
