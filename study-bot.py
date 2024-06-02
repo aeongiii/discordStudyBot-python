@@ -521,7 +521,7 @@ async def process_vacation_request(message):
                         cursor.close()
                         # insert_vacation_log 함수를 호출하여 휴가 기록 추가
                         success, response_message = insert_vacation_log(member_id, period_id, message.author.display_name)
-                        await message.channel.send(response_message)
+                        await message.channel.send(f"{message.author.mention} {response_message}")
                     else:
                         await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
                 else:
@@ -532,7 +532,7 @@ async def process_vacation_request(message):
                 cursor.close()
                 connection.close()
         else:
-            await message.channel.send("DB 연결 실패")
+            await message.channel.send(f"{message.author.mention} DB 연결 실패")
     else:
         await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
 
@@ -617,7 +617,7 @@ async def send_daily_study_ranking():
             """)
             results = cursor.fetchall()
 
-            ranking_message = "======== 일일 공부시간 순위 ========\n"
+            ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
                 ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
@@ -656,7 +656,7 @@ async def send_weekly_study_ranking():
             """)
             results = cursor.fetchall()
 
-            ranking_message = "======== 주간 공부시간 순위 ========\n"
+            ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
                 ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
