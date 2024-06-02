@@ -601,12 +601,16 @@ async def send_daily_study_ranking():
     if connection:
         cursor = connection.cursor()
         try:
-            # 어제 공부한 멤버들의 공부시간 가져오기
+            # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
-                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
-                FROM activity_log a
-                JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
+                FROM member m
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                WHERE m.member_id IN (
+                    SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
+                ) OR m.member_id IN (
+                    SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
+                )
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
                 LIMIT 10
@@ -673,7 +677,7 @@ async def send_weekly_study_ranking():
 
 # ---------------------------------------- 내 정보 확인 함수 ----------------------------------------
 
-# 공부시간 안내 함수
+# 공부시간 안내 함수 (휴가 신청했어도 실제 공부시간으로 안내되도록)
 async def send_study_time_info(user, member_id, period_id):
     connection = create_db_connection()
     if connection:
@@ -681,44 +685,42 @@ async def send_study_time_info(user, member_id, period_id):
         try:
             # 오늘 공부시간
             cursor.execute(
-                "SELECT log_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = CURRENT_DATE",
+                """
+                SELECT COALESCE(SUM(log_study_time), 0) 
+                FROM activity_log 
+                WHERE member_id = %s 
+                AND period_id = %s 
+                AND log_date = CURRENT_DATE
+                """,
                 (member_id, period_id)
             )
-            today_study_time = cursor.fetchone()
-            if today_study_time:
-                today_study_time = today_study_time[0]
-            else:
-                today_study_time = 0
+            today_study_time = cursor.fetchone()[0]
 
             # 이번 주 공부시간
             cursor.execute(
                 """
-                SELECT SUM(log_study_time) FROM activity_log
-                WHERE member_id = %s AND period_id = %s
-                AND log_date >= CURRENT_DATE - INTERVAL '1 day' * EXTRACT(DOW FROM CURRENT_DATE)
+                SELECT COALESCE(SUM(log_study_time), 0) 
+                FROM activity_log
+                WHERE member_id = %s 
+                AND period_id = %s
+                AND log_date >= CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE) * INTERVAL '1 day'
                 AND log_date <= CURRENT_DATE
-                """,  # 현재의 요일을 숫자 0~6으로 반환. [0 = 일, 1 = 월, ... 6 = 토]
+                """,
                 (member_id, period_id)
             )
-            week_study_time = cursor.fetchone()
-            if week_study_time and week_study_time[0]:
-                week_study_time = week_study_time[0]
-            else:
-                week_study_time = 0
+            week_study_time = cursor.fetchone()[0]
 
             # 누적 공부시간
             cursor.execute(
                 """
-                SELECT SUM(log_study_time) FROM activity_log
-                WHERE member_id = %s AND period_id = %s
+                SELECT COALESCE(SUM(log_study_time), 0) 
+                FROM activity_log
+                WHERE member_id = %s 
+                AND period_id = %s
                 """,
                 (member_id, period_id)
             )
-            total_study_time = cursor.fetchone()
-            if total_study_time and total_study_time[0]:
-                total_study_time = total_study_time[0]
-            else:
-                total_study_time = 0
+            total_study_time = cursor.fetchone()[0]
 
             # 시간과 분으로 변환
             today_hours, today_minutes = divmod(today_study_time, 60)
@@ -726,7 +728,7 @@ async def send_study_time_info(user, member_id, period_id):
             total_hours, total_minutes = divmod(total_study_time, 60)
 
             await user.send(
-                f"현재까지의 공부시간을 알려드릴게요!.\n"
+                f"현재까지의 공부시간을 알려드릴게요!\n"
                 f"1. 오늘 공부시간 : {today_hours}시간 {today_minutes}분\n"
                 f"2. 이번 주 공부시간 : {week_hours}시간 {week_minutes}분\n"
                 f"3. 누적 공부시간 : {total_hours}시간 {total_minutes}분"
