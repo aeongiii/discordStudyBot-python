@@ -729,6 +729,67 @@ async def send_study_time_info(user, member_id, period_id):
         await user.send("DB 연결 실패")
 
 
+
+# ---------------------------------------- 데이터 수집 함수 ----------------------------------------
+
+
+# 메시지 수 카운팅하는 함수
+def log_message_count(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        try:
+            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
+            cursor.execute(
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                (member_id, log_date)
+            )
+            log_id = cursor.fetchone()
+            if log_id:
+                # 이미 존재하는 로그가 있으면 메시지 수 업데이트
+                cursor.execute(
+                    "UPDATE activity_log SET log_message_count = log_message_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
+                )
+            else:
+                # 존재하지 않으면 새로운 로그 생성
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count) VALUES (%s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 1)
+                )
+            connection.commit()
+        except Exception as e:
+            print(f"Error logging message count: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+# 메시지 수 카운팅하기 위해 활동중인 Period_id 가져오는 함수
+def get_active_period_id(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE",
+                (member_id,)
+            )
+            period_id = cursor.fetchone()
+            if period_id:
+                return period_id[0]
+        except Exception as e:
+            print(f"Error getting active period id: {e}")
+        finally:
+            cursor.close()
+            connection.close()
+    return None
+
+
+
 # ================================================ 서버 이벤트 ================================================
 
 # intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
@@ -772,16 +833,26 @@ async def on_member_remove(member):
     handle_member_leave(member)
 
 
-# '공지' 명령어 입력 시 공지사항 출력 / '휴가신청' 입력 시 휴가신청 / '공부시간' 입력 시 공부시간 안내
+#  메시지 수 카운팅 / '공지' 명령어 입력 시 공지사항 출력 / 
+# '휴가신청' 입력 시 휴가신청 / '공부시간' 입력 시 공부시간 안내
+
 @client.event
 async def on_message(message):
+    if message.author == client.user:
+        return  # 봇 자신의 메시지는 무시
+
+    member_id = message.author.id
+    log_message_count(member_id)  # 메시지 전송 횟수 로그 함수 호출
+
     if message.content == "공지":
         if message.channel.id == 1238886734725648499: # [공지]채널
             await send_announcement(message.channel, message.author.mention) # 공지 함수 호출
         else:
             await message.channel.send(f"{message.author.mention}님, 공지사항은 [공지] 채널에서 볼 수 있어요!")
+    
     if message.content == "휴가신청":
         await process_vacation_request(message) # 휴가신청 함수 호출
+    
     if message.content == "공부시간":
         if isinstance(message.channel, discord.DMChannel):
             connection = create_db_connection()
@@ -791,7 +862,7 @@ async def on_message(message):
                 result = cursor.fetchone()
                 if result:
                     member_id = result[0]
-                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE",(member_id,))
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
                     result = cursor.fetchone()
                     if result:
                         period_id = result[0]
