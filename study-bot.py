@@ -613,7 +613,6 @@ async def send_daily_study_ranking():
                 )
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
-                LIMIT 10
             """)
             results = cursor.fetchall()
 
@@ -652,7 +651,6 @@ async def send_weekly_study_ranking():
                 WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
                 GROUP BY m.member_nickname, a.member_id
                 ORDER BY total_study_time DESC
-                LIMIT 10
             """)
             results = cursor.fetchall()
 
@@ -728,7 +726,7 @@ async def send_study_time_info(user, member_id, period_id):
             total_hours, total_minutes = divmod(total_study_time, 60)
 
             await user.send(
-                f"{user.mention}현재까지의 공부시간을 알려드릴게요!\n"
+                f"{user.mention}님, 현재까지의 공부시간을 알려드릴게요!\n"
                 f"1. 오늘 공부시간 : {today_hours}시간 {today_minutes}분\n"
                 f"2. 이번 주 공부시간 : {week_hours}시간 {week_minutes}분\n"
                 f"3. 누적 공부시간 : {total_hours}시간 {total_minutes}분"
