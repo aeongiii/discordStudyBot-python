@@ -257,7 +257,7 @@ def start_study_session(member_id, period_id, member_display_name):
 
 
 # 공부 세션 종료 정보 업데이트 -- 평소에 그냥 카메라 off 하여 공부 종료할 경우
-async def end_study_session(member_id, period_id, member_display_name):
+async def end_study_session(member_id, period_id, member):
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
@@ -280,11 +280,7 @@ async def end_study_session(member_id, period_id, member_display_name):
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
                 (end_time, duration, member_id, period_id)
             )
-
-            connection.commit()  # 이부분 추가 !!!!!
-            ch = client.get_channel(1239098139361808429)   # 이부분 추가 !!!!!
-
-            # 공부시간 5분 이상인 경우에만 인정해줌
+            # 5분 이상인 경우에만 인정해줌
             if duration >= 5:
                 log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
                 # activity_log 테이블에 이미 해당 멤버 + 해당 날짜의 데이터 존재하면 업데이트
@@ -306,10 +302,10 @@ async def end_study_session(member_id, period_id, member_display_name):
                         (member_id, period_id, log_date, duration)
                     )
                 connection.commit()
-                await ch.send(f"{member_display_name}님 {duration}분 동안 공부했습니다!👍")
+                return True, f"{member.mention}님 {duration}분 동안 공부했습니다!👍"
             else:
-                await ch.send(f"{member_display_name}님 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
-            return True, None
+                connection.commit()
+                return True, f"{member.mention}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
@@ -520,8 +516,8 @@ async def process_vacation_request(message):
                         period_id = result[0]
                         cursor.close()
                         # insert_vacation_log 함수를 호출하여 휴가 기록 추가
-                        success, response_message = insert_vacation_log(member_id, period_id, message.author.display_name)
-                        await message.channel.send(f"{message.author.mention} {response_message}")
+                        success, response_message = insert_vacation_log(member_id, period_id, message.author)
+                        await message.channel.send(response_message)
                     else:
                         await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
                 else:
@@ -532,18 +528,17 @@ async def process_vacation_request(message):
                 cursor.close()
                 connection.close()
         else:
-            await message.channel.send(f"{message.author.mention} DB 연결 실패")
+            await message.channel.send("DB 연결 실패")
     else:
         await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
 
 # 휴가 기록 추가 함수
-def insert_vacation_log(member_id, period_id, member_display_name):
+def insert_vacation_log(member_id, period_id, member):
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         vacation_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-        today = datetime.now(pytz.timezone('Asia/Seoul'))
-        vacation_week_start = (today - timedelta(days=today.weekday())).strftime('%Y-%m-%d')
+        vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
 
         try:
             # 이번 주에 이미 휴가를 사용했는지 확인
@@ -554,7 +549,7 @@ def insert_vacation_log(member_id, period_id, member_display_name):
             result = cursor.fetchone()
             if result:
                 already_used_date = result[0].strftime('%Y-%m-%d')
-                return False, f"{member_display_name}님, 이미 이번주에 휴가를 사용했어요! 휴가 사용일: {already_used_date}"
+                return False, f"{member.mention}님, 이미 이번주에 휴가를 사용했어요! 휴가 사용일: {already_used_date}"
 
             # vacation_log 테이블에 기록 추가
             cursor.execute(
@@ -564,29 +559,23 @@ def insert_vacation_log(member_id, period_id, member_display_name):
 
             # activity_log 테이블에 출석 기록 추가 또는 업데이트
             cursor.execute(
-                """
-                INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (member_id, period_id, log_date)
-                DO UPDATE SET log_attendance = EXCLUDED.log_attendance
-                """,
+                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance",
                 (member_id, period_id, vacation_date, 0, 0, 0, True)
             )
 
             connection.commit()
-            print(f"{member_display_name}님의 휴가신청 완료되었습니다. [날짜 : {vacation_date}]")
-            return True, f"{member_display_name}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
-
+            return True, f"{member.mention}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
+            
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-            return False, f"휴가 신청 중 오류가 발생했습니다: {str(e)}"
+            return False, None
 
         finally:
             cursor.close()
             connection.close()
     else:
-        return False, "DB 연결 실패"
+        return False, None
     
 
 # ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
@@ -854,7 +843,7 @@ async def on_voice_state_update(member, before, after):
 
             # 카메라 on 하면 = 공부 시작
             if before.self_video is False and after.self_video is True:
-                await ch.send(f"{member_display_name}님 공부 시작!✏️")
+                await ch.send(f"{member.mention} 공부 시작!✏️")
                 start_study_session(member_id, period_id, member_display_name)
             
             # 카메라 on 상태였다가 카메라 off 또는 음성채널 나갈 경우 = 공부 종료
