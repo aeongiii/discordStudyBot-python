@@ -788,6 +788,46 @@ def get_active_period_id(member_id):
             connection.close()
     return None
 
+# 로그인 횟수를 기록하는 함수 (활동 상태가 온라인으로 변하면 로그인했다고 본다.)
+def log_login_count(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        try:
+            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
+            cursor.execute(
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                (member_id, log_date)
+            )
+            log_id = cursor.fetchone()
+            if log_id:
+                # 이미 존재하는 로그가 있으면 로그인 수 업데이트
+                cursor.execute(
+                    "UPDATE activity_log SET log_login_count = log_login_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
+                )
+            else:
+                # 존재하지 않으면 새로운 로그 생성
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_login_count) VALUES (%s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 1)
+                )
+            connection.commit()
+        except Exception as e:
+            print(f"Error logging login count: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+# 멤버의 상태 변화 감지하여 로그인 횟수 기록
+@client.event
+async def on_presence_update(before, after):
+    if before.status == discord.Status.offline and after.status == discord.Status.online:
+        log_login_count(after.id)
 
 
 # ================================================ 서버 이벤트 ================================================
