@@ -1056,7 +1056,46 @@ async def on_presence_update(before, after):
         log_login_count(after.id)
 
 
+# 반응 횟수를 기록하는 함수
+def log_reaction_count(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        try:
+            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
+            cursor.execute(
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                (member_id, log_date)
+            )
+            log_id = cursor.fetchone()
+            if log_id:
+                # 이미 존재하는 로그가 있으면 반응 수 업데이트
+                cursor.execute(
+                    "UPDATE activity_log SET log_reaction_count = log_reaction_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
+                )
+            else:
+                # 존재하지 않으면 새로운 로그 생성
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_reaction_count) VALUES (%s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 1)
+                )
+            connection.commit()
+        except Exception as e:
+            print(f"Error logging reaction count: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
 
+# 반응 추가 이벤트 감지하여 반응 횟수 기록
+@client.event
+async def on_reaction_add(reaction, user):
+    if not user.bot:  # 봇의 반응은 무시
+        log_reaction_count(user.id)
 
 
 # 봇 실행 토큰
