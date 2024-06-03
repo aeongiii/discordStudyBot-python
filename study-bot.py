@@ -513,7 +513,7 @@ async def check_absences():
         try:
             # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
             cursor.execute("""
-                SELECT m.member_id, m.member_username
+                SELECT m.member_id, m.member_nickname
                 FROM member m
                 LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE
                 LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURRENT_DATE
@@ -524,42 +524,44 @@ async def check_absences():
             if results:
                 for result in results:
                     member_id = result[0]
-                    member_username = result[1]
+                    member_nickname = result[1]
                     user = discord.utils.get(client.get_all_members(), id=member_id)
-                    await process_absence(member_id, 1, member_username)  # period_id 값을 1로 가정
+                    await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정
 
             # 결석 3회 이상인 멤버 검색
             cursor.execute("""
-                SELECT member_id, member_username FROM churn_prediction 
-                WHERE prediction_absence_count >= 3 
-                AND prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
+                SELECT cp.member_id, m.member_nickname 
+                FROM churn_prediction cp
+                JOIN member m ON cp.member_id = m.member_id
+                WHERE cp.prediction_absence_count >= 3 
+                AND cp.prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
             """)
             results = cursor.fetchall()
 
             if results:
                 for result in results:
                     member_id = result[0]
-                    member_username = result[1]
+                    member_nickname = result[1]
                     user = discord.utils.get(client.get_all_members(), id=member_id)
                     if user:
                         try:
-                            await user.send(f"{member_username}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
+                            await user.send(f"{member_nickname}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
                         except discord.Forbidden:
-                            print(f"DM을 보낼 수 없습니다: {member_username}")
+                            print(f"DM을 보낼 수 없습니다: {member_nickname}")
 
             # 익일 0시에 탈퇴 처리
             await asyncio.sleep(86400)  # 24시간 대기
             if results:
                 for result in results:
                     member_id = result[0]
-                    member_username = result[1]
+                    member_nickname = result[1]
                     guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
                     if guild:
                         member = discord.utils.get(guild.members, id=member_id)
                         if member:
                             await guild.kick(member, reason="스터디 조건 미달")
                         else:
-                            print(f"Member {member_username} not found in guild {guild.name}")
+                            print(f"Member {member_nickname} not found in guild {guild.name}")
                     else:
                         print(f"Guild with ID {1238886734725648496} not found")
 
