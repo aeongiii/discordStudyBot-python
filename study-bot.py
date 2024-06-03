@@ -919,7 +919,7 @@ async def on_message(message):
             await message.channel.send(f"{message.author.mention}님, 채널이 아닌 [다이렉트 메시지]로 study bot에게 '공부시간'을 질문해보세요! 현재까지 공부한 시간을 알려드릴게요.")
 
 
-# 공부 시작 / 공부 종료 함수  -- 오류 해결때문에 각각 로그 추가!
+# 공부 시작 / 공부 종료 함수 -- 오류 해결 때문에 각각 로그 추가!
 @client.event
 async def on_voice_state_update(member, before, after):
     ch = client.get_channel(1239098139361808429)
@@ -948,15 +948,24 @@ async def on_voice_state_update(member, before, after):
                 return  # 활동 기간 정보가 없으면 함수 종료
 
             cursor.close()
-            connection.close() 
+            connection.close()
 
-            # 카메라 on 하면 = 공부 시작
-            if before.self_video is False and after.self_video is True:
+            # 카메라가 켜져 있는 상태로 음성 채널에 들어갔을 때
+            if before.channel is None and after.channel is not None and after.self_video:
                 await ch.send(f"{member.mention} 공부 시작!✏️")
                 start_study_session(member_id, period_id, member.display_name)
-            
-            # 카메라 on 상태였다가 카메라 off 또는 음성채널 나갈 경우 = 공부 종료
-            elif (before.self_video is True and after.self_video is False) or (before.channel is not None and after.channel is None):
+
+            # 카메라가 켜져 있는 상태로 음성 채널을 나갔을 때
+            elif before.channel is not None and after.channel is None and before.self_video:
+                print(f"{member.display_name}님의 공부 세션을 종료합니다.")
+                success, message = await end_study_session(member_id, period_id, member)
+                if success and message:
+                    await ch.send(message)  # 공부기록됐다~ 메시지 전송
+                else:
+                    print(f"{member.display_name}님의 공부 세션 종료 실패")
+
+            # 카메라가 켜져 있는 상태에서 카메라를 끌 때
+            elif before.self_video is True and after.self_video is False:
                 print(f"{member.display_name}님의 공부 세션을 종료합니다.")
                 success, message = await end_study_session(member_id, period_id, member)
                 if success and message:
