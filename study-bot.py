@@ -1076,8 +1076,7 @@ def log_reaction_count(member_id):
             if log_id:
                 current_reaction_count = log_id[1] or 0  # None일 경우 0으로 설정
                 new_reaction_count = current_reaction_count + 1
-                # 디버깅을 위해 로그 남기기
-                print(f"현재 반응 횟수: {current_reaction_count}, 새로운 반응 횟수: {new_reaction_count}")
+                print(f"현재 반응 수 : {current_reaction_count}, 새로운 반응 수 : {new_reaction_count}") # 로그 추가
                 # 이미 존재하는 로그가 있으면 반응 수 업데이트
                 cursor.execute(
                     "UPDATE activity_log SET log_reaction_count = %s WHERE log_id = %s",
@@ -1090,6 +1089,7 @@ def log_reaction_count(member_id):
                     (member_id, get_active_period_id(member_id), log_date, 1)
                 )
             connection.commit()
+            print(f"[member_id : {member_id}]의 반응 수 업데이트 : {log_date}") # 로그 추가
         except Exception as e:
             print(f"Error logging reaction count: {e}")
             connection.rollback()
@@ -1103,6 +1103,7 @@ def log_reaction_count(member_id):
 @client.event
 async def on_reaction_add(reaction, user):
     if not user.bot:  # 봇의 반응은 무시
+        print(f" {user.name} ({user.id}) 님이 메시지 ({reaction.message.id})에 반응을 남겼습니다.") # 로그 추가
         log_reaction_count(user.id)
 
 
