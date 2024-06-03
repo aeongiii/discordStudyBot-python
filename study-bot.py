@@ -219,12 +219,11 @@ def handle_member_leave(member):
 async def send_announcement(channel, author_mention):
     embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description=f"{author_mention}님, 환영합니다!\n", 
                           timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
-    embed.add_field(name="📚 공부는 어떻게 시작하나요?", value="[study room] 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료되고, \n일일 공부시간에 누적돼요. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
+    embed.add_field(name="📚 공부는 어떻게 시작하나요?", value="[study room] 음성 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료됩니다. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
     embed.add_field(name="⏰매일 5분 이상 공부해야 해요!", value="이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
-    embed.add_field(name="✍️ 카메라로 얼굴을 꼭 보여줘야 하나요?", value="아니요! 공부하는 모습을 부분적으로 보여준다면 다 좋아요. \nex) 공부하는 손, 타이핑하는 키보드, 종이가 넘어가는 책... \n물론 얼굴을 보여준다면 반갑게 인사할게요.\n", inline=False)
-    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="채팅 채널 [휴가신청]에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 공부한 것으로 인정됩니다.\n", inline=False)
+    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="[휴가신청] 채널에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 출석으로 인정됩니다.\n", inline=False)
     embed.add_field(name="⚠️스터디 조건 미달", value="공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
-    embed.add_field(name="📈내 공부시간 보기", value="다이렉트 메시지에서 \"공부시간\"이라고 입력하면, 봇이 지금까지의 공부시간을 1:1로 알려드려요!\n", inline=False)
+    embed.add_field(name="📈내 공부시간 보기", value="다이렉트 메시지에서 \"공부시간\"이라고 입력하면, 봇이 지금까지의 공부시간을 알려드려요!\n", inline=False)
     embed.add_field(name="📊공부시간 순위 공개", value="매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
     embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
     embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
@@ -270,6 +269,7 @@ async def end_study_session(member_id, period_id, member):
             )
             start_time_result = cursor.fetchone()
             if start_time_result is None:
+                print(f"{member.display_name}님의 시작 시간이 등록되지 않았습니다.")
                 return False, None
             start_time = start_time_result[0]
             start_dt = start_time if isinstance(start_time, datetime) else datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
@@ -307,13 +307,14 @@ async def end_study_session(member_id, period_id, member):
                 connection.commit()
                 return True, f"{member.mention}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
         except Error as e:
-            print(f"'{e}' 에러 발생")
+            print(f"에러 발생: '{e}'")
             connection.rollback()
             return False, None
         finally:
             cursor.close()
             connection.close()
     else:
+        print("DB 연결 실패")
         return False, None
 
     
@@ -868,21 +869,22 @@ async def on_voice_state_update(member, before, after):
             cursor.close()
             connection.close() 
 
-            member_display_name = member.display_name
-
             # 카메라 on 하면 = 공부 시작
             if before.self_video is False and after.self_video is True:
                 await ch.send(f"{member.mention} 공부 시작!✏️")
-                start_study_session(member_id, period_id, member_display_name)
+                start_study_session(member_id, period_id, member.display_name)
             
             # 카메라 on 상태였다가 카메라 off 또는 음성채널 나갈 경우 = 공부 종료
             elif (before.self_video is True and after.self_video is False) or (before.channel is not None and after.channel is None):
-                success, message = await end_study_session(member_id, period_id, member_display_name)
+                print(f"{member.display_name}님의 공부 세션을 종료합니다.")
+                success, message = await end_study_session(member_id, period_id, member)
                 if success and message:
                     await ch.send(message)  # 공부기록됐다~ 메시지 전송
+                else:
+                    print(f"{member.display_name}님의 공부 세션 종료 실패")
 
         except Error as e:
-            print(f"'{e}' 에러 발생")
+            print(f"에러 발생: '{e}'")
             cursor.close()
             connection.close()
     else:
