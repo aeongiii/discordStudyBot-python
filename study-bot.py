@@ -299,7 +299,10 @@ async def end_study_session(member_id, period_id, member):
                 print(f"{member.display_name}님의 시작 시간이 등록되지 않았습니다.")
                 return False, None
             start_time = start_time_result[0]
-            start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            if isinstance(start_time, str):
+                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            else:
+                start_dt = start_time
             end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             duration = int((end_dt - start_dt).total_seconds() // 60)
 
