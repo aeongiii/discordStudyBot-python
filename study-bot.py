@@ -1069,18 +1069,15 @@ def log_reaction_count(member_id):
         try:
             # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
             cursor.execute(
-                "SELECT log_id, log_reaction_count FROM activity_log WHERE member_id = %s AND log_date = %s",
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
                 (member_id, log_date)
             )
             log_id = cursor.fetchone()
             if log_id:
-                current_reaction_count = log_id[1] or 0  # None일 경우 0으로 설정
-                new_reaction_count = current_reaction_count + 1
-                print(f"현재 반응 수 : {current_reaction_count}, 새로운 반응 수 : {new_reaction_count}") # 로그 추가
                 # 이미 존재하는 로그가 있으면 반응 수 업데이트
                 cursor.execute(
-                    "UPDATE activity_log SET log_reaction_count = %s WHERE log_id = %s",
-                    (new_reaction_count, log_id[0])
+                    "UPDATE activity_log SET log_reaction_count = log_reaction_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
                 )
             else:
                 # 존재하지 않으면 새로운 로그 생성
@@ -1089,7 +1086,6 @@ def log_reaction_count(member_id):
                     (member_id, get_active_period_id(member_id), log_date, 1)
                 )
             connection.commit()
-            print(f"[member_id : {member_id}]의 반응 수 업데이트 : {log_date}") # 로그 추가
         except Exception as e:
             print(f"Error logging reaction count: {e}")
             connection.rollback()
