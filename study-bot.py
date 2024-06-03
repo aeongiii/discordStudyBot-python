@@ -43,7 +43,7 @@ def save_all_sessions():
         cursor = connection.cursor()
         try:
             end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
-            # 현재 진행 중이ㄴ 모든 세션 종료
+            # 현재 진행 중인 모든 세션 종료
             cursor.execute(
                 "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
             )
@@ -59,27 +59,54 @@ def save_all_sessions():
                     start_dt = start_time if isinstance(start_time, datetime) else datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
                     end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
                     duration = int((end_dt - start_dt).total_seconds() // 60)
+
+                    # 종료 시간 업데이트
                     cursor.execute(
                         "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
                         (end_time, duration, member_id, period_id)
                     )
+
                     if duration >= 5:
+                        day_duration, night_duration = calculate_day_night_duration(start_dt, end_dt)
                         log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+
                         cursor.execute(
-                            "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                            "SELECT log_id, log_day_study_time, log_night_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
                             (member_id, period_id, log_date)
                         )
-                        log_id = cursor.fetchone()
-                        if log_id:
+                        log_result = cursor.fetchone()
+                        
+                        if log_result:
+                            log_id, log_day_study_time, log_night_study_time = log_result
+                            new_day_study_time = log_day_study_time + day_duration
+                            new_night_study_time = log_night_study_time + night_duration
                             cursor.execute(
-                                "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
-                                (duration, log_id[0])
+                                "UPDATE activity_log SET log_study_time = log_study_time + %s, log_day_study_time = %s, log_night_study_time = %s WHERE log_id = %s",
+                                (duration, new_day_study_time, new_night_study_time, log_id)
                             )
                         else:
                             cursor.execute(
-                                "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
-                                (member_id, period_id, log_date, duration)
+                                "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time) VALUES (%s, %s, %s, %s, %s, %s)",
+                                (member_id, period_id, log_date, duration, day_duration, night_duration)
                             )
+                            cursor.execute(
+                                "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                                (member_id, period_id, log_date)
+                            )
+                            log_id = cursor.fetchone()[0]
+
+                        if day_duration > night_duration:
+                            active_period = 'Day'
+                        elif night_duration > day_duration:
+                            active_period = 'Night'
+                        else:
+                            active_period = 'Day'
+
+                        cursor.execute(
+                            "UPDATE activity_log SET log_active_period = %s WHERE log_id = %s",
+                            (active_period, log_id)
+                        )
+
             connection.commit()
         except Error as e:
             print(f"'{e}' 에러 발생")
@@ -272,9 +299,10 @@ async def end_study_session(member_id, period_id, member):
                 print(f"{member.display_name}님의 시작 시간이 등록되지 않았습니다.")
                 return False, None
             start_time = start_time_result[0]
-            start_dt = start_time if isinstance(start_time, datetime) else datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+            start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
             end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
             duration = int((end_dt - start_dt).total_seconds() // 60)
+
             # 종료 시간 업데이트
             cursor.execute(
                 "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
@@ -282,25 +310,51 @@ async def end_study_session(member_id, period_id, member):
             )
             # 5분 이상인 경우에만 인정해줌
             if duration >= 5:
+                # Day와 Night 시간 계산
+                day_duration, night_duration = calculate_day_night_duration(start_dt, end_dt)
+
+                # activity_log 업데이트
                 log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
                 # activity_log 테이블에 이미 해당 멤버 + 해당 날짜의 데이터 존재하면 업데이트
                 cursor.execute(
-                    "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                    "SELECT log_id, log_day_study_time, log_night_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
                     (member_id, period_id, log_date)
                 )
-                log_id = cursor.fetchone()
-                # 이미 존재할 경우 공부시간만 업데이트
-                if log_id:
+                log_result = cursor.fetchone()
+                
+                if log_result:
+                    log_id, log_day_study_time, log_night_study_time = log_result
+                    new_day_study_time = log_day_study_time + day_duration
+                    new_night_study_time = log_night_study_time + night_duration
                     cursor.execute(
-                        "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
-                        (duration, log_id[0])
+                        "UPDATE activity_log SET log_study_time = log_study_time + %s, log_day_study_time = %s, log_night_study_time = %s WHERE log_id = %s",
+                        (duration, new_day_study_time, new_night_study_time, log_id)
                     )
                 else:
                     # activity_log에 데이터 없으면 새로 생성
                     cursor.execute(
-                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
-                        (member_id, period_id, log_date, duration)
+                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time) VALUES (%s, %s, %s, %s, %s, %s)",
+                        (member_id, period_id, log_date, duration, day_duration, night_duration)
                     )
+                    cursor.execute(
+                        "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                        (member_id, period_id, log_date)
+                    )
+                    log_id = cursor.fetchone()[0]
+
+                # Day와 Night 시간 계산 결과에 따른 공부 시간대 설정
+                if day_duration > night_duration:
+                    active_period = 'Day'
+                elif night_duration > day_duration:
+                    active_period = 'Night'
+                else:
+                    active_period = 'Day'  # Day와 Night 시간대가 같을 경우 Day로 설정
+
+                cursor.execute(
+                    "UPDATE activity_log SET log_active_period = %s WHERE log_id = %s",
+                    (active_period, log_id)
+                )
+
                 connection.commit()
                 return True, f"{member.mention}님 {duration}분 동안 공부했습니다!👍"
             else:
@@ -316,6 +370,30 @@ async def end_study_session(member_id, period_id, member):
     else:
         print("DB 연결 실패")
         return False, None
+    
+
+# 공부 시간대 계산 함수
+def calculate_day_night_duration(start_dt, end_dt):
+    day_duration = 0
+    night_duration = 0
+
+    while start_dt < end_dt:
+        if 6 <= start_dt.hour < 18:  # Day 시간대
+            next_transition = datetime.combine(start_dt.date(), time(18, 0))
+            if next_transition > end_dt:
+                next_transition = end_dt
+            day_duration += int((next_transition - start_dt).total_seconds() // 60)
+        else:  # Night 시간대
+            next_transition = datetime.combine(start_dt.date() + timedelta(days=1), time(6, 0))
+            if start_dt.hour < 6:
+                next_transition = datetime.combine(start_dt.date(), time(6, 0))
+            if next_transition > end_dt:
+                next_transition = end_dt
+            night_duration += int((next_transition - start_dt).total_seconds() // 60)
+        start_dt = next_transition
+
+    return day_duration, night_duration
+
 
     
 
@@ -891,73 +969,41 @@ async def on_voice_state_update(member, before, after):
         print("DB 연결 실패")
 
 # 11:59가 되면 공부시간 저장
-async def end_study_session_at_midnight(member_id, period_id, member_display_name):
+async def end_study_session_at_midnight():
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
-        end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
         try:
-            # 시작 시간 가져오기
+            end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
+            # 현재 진행 중인 모든 세션을 종료
             cursor.execute(
-                "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
-                (member_id, period_id)
+                "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
             )
-            start_time_result = cursor.fetchone()
-            if start_time_result is None:
-                print(f"{member_display_name}님의 시작 시간이 등록되지 않았습니다.")
-                return False, None
-            start_time = start_time_result[0]
-            # 시작 시간이 datetime 객체가 아닌 경우 문자열로 변환
-            if isinstance(start_time, str):
-                start_dt = datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
-            else:
-                start_dt = start_time
-            end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
-            duration = int((end_dt - start_dt).total_seconds() // 60)
-            # 종료 시간 및 기간 업데이트
+            results = cursor.fetchall()
+            for member_id, period_id in results:
+                await end_study_session(member_id, period_id, "자동 종료")
+
+            # 카메라가 켜져 있는 멤버들의 새로운 공부 세션 시작
             cursor.execute(
-                "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
-                (end_time, duration, member_id, period_id)
+                """
+                SELECT DISTINCT ss.member_id, mp.period_id
+                FROM study_session ss
+                JOIN membership_period mp ON ss.member_id = mp.member_id
+                WHERE ss.session_end_time = %s AND mp.period_now_active = TRUE
+                """,
+                (end_time,)
             )
-            connection.commit()
-            # 공부 시간이 5분 이상인 경우에만 activity_log 테이블의 log_study_time에 공부시간 누적
-            if duration >= 5:
-                # activity_log에 해당 날짜와 멤버의 레코드가 존재하는지 확인
-                log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-                cursor.execute(
-                    "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
-                    (member_id, period_id, log_date)
-                )
-                log_id = cursor.fetchone()
-                if log_id:
-                    # 이미 존재하는 레코드에 공부 시간 누적
-                    cursor.execute(
-                        "UPDATE activity_log SET log_study_time = log_study_time + %s WHERE log_id = %s",
-                        (duration, log_id[0])
-                    )
-                else:
-                    # 새로운 레코드 삽입
-                    cursor.execute(
-                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time) VALUES (%s, %s, %s, %s)",
-                        (member_id, period_id, log_date, duration)
-                    )
-                message = f"{member_display_name}님 {duration}분 동안 공부했습니다!👍"
-                print(f"{member_display_name}님의 최근 공부 시간: {duration}분")
-            else:
-                message = f"{member_display_name}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
-                print(f"{member_display_name}님의 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
-            connection.commit()
-            return True, message
+            member_ids = cursor.fetchall()
+            for member_id, period_id in member_ids:
+                start_study_session(member_id, period_id, "자동 시작")
         except Error as e:
             print(f"'{e}' 에러 발생")
             connection.rollback()
-            return False, None
         finally:
             cursor.close()
             connection.close()
     else:
         print("DB 연결 실패")
-        return False, None
 
 
 # ---------------------------------------- 데이터 수집 함수 ----------------------------------------
