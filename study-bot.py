@@ -215,16 +215,16 @@ def handle_member_leave(member):
 
 # ---------------------------------------- 공지 관련 함수 ----------------------------------------       
 
-# '공지' 입력 시 공지사항 출력 함수
+# '공지' 입력 시 공지사항 출력 함수 
 async def send_announcement(channel, author_mention):
     embed = discord.Embed(title="아아- 공지채널에서 알립니다.📢", description=f"{author_mention}님, 환영합니다!\n", 
                           timestamp=datetime.now(pytz.timezone('Asia/Seoul')), color=0x75c3c5)
     embed.add_field(name="📚 공부는 어떻게 시작하나요?", value="[study room] 음성 채널에서 카메라를 켜면 공부시간 측정 시작! \n카메라를 끄면 시간 측정이 종료됩니다. \n공부시간 5분 이하는 인정되지 않아요.\n\n", inline=False)
-    embed.add_field(name="⏰매일 5분 이상 공부해야 해요!", value="이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
-    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="[휴가신청] 채널에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 출석으로 인정됩니다.\n", inline=False)
-    embed.add_field(name="⚠️스터디 조건 미달", value="공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
-    embed.add_field(name="📈내 공부시간 보기", value="다이렉트 메시지에서 \"공부시간\"이라고 입력하면, 봇이 지금까지의 공부시간을 알려드려요!\n", inline=False)
-    embed.add_field(name="📊공부시간 순위 공개", value="매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
+#    embed.add_field(name="⏰매일 5분 이상 공부해야 해요!", value="이 스터디의 목표는 [꾸준히 공부하는 습관]이에요. \n조금이라도 좋으니 매일매일 공부해보세요!\n", inline=False)
+#    embed.add_field(name="🛏️쉬고싶은 날이 있나요?", value="[휴가신청] 채널에 \"휴가\"라고 남기면 돼요. (주 1회 가능) \n휴가를 사용해도 공부 가능하지만, 휴가를 취소할 수는 없어요. \n휴가를 제출한 날은 출석으로 인정됩니다.\n", inline=False)
+#    embed.add_field(name="⚠️스터디 조건 미달", value="공부를 하지 않은 날이 3회 누적되는 경우 스터디에서 제외됩니다. \n하지만 언제든 다시 서버에 입장하여 도전할 수 있어요!\n", inline=False)
+#    embed.add_field(name="📈내 공부시간 보기", value="다이렉트 메시지에서 \"공부시간\"이라고 입력하면, 봇이 지금까지의 공부시간을 알려드려요!\n", inline=False)
+#    embed.add_field(name="📊공부시간 순위 공개", value="매일 자정에 일일 공부시간 순위가 공개됩니다.\n매주 월요일 0시에 주간 공부시간 순위가 공개됩니다.\n", inline=False)
     embed.set_footer(text="Bot made by.에옹", icon_url="https://cdn.discordapp.com/attachments/1238886734725648499/1238904212805648455/hamster-apple.png?ex=6640faf6&is=663fa976&hm=7e82b5551ae0bc4f4265c15c1ae0be3ef40ba7aaa621347baf1f46197d087fd6&")
     embed.set_thumbnail(url="https://cdn.discordapp.com/attachments/1238886734725648499/1238905277777051738/file-0qJvNUQ1lyaUiZDmuOEI24BT.png?ex=6640fbf3&is=663faa73&hm=f2f65e3623da6c444361aa9938691d152623c88de4ca51852adc47e8b755289d&")
     await channel.send(embed=embed)        
