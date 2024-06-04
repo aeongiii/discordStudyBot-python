@@ -525,7 +525,15 @@ async def check_absences():
                 for result in results:
                     member_id = result[0]
                     member_nickname = result[1]
-                    user = discord.utils.get(client.get_all_members(), id=member_id)
+
+                    # 결석한 멤버의 activity_log에 새로운 열 추가
+                    log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+                    cursor.execute("""
+                        INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
+                    """, (member_id, 1, log_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
+
                     await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정
 
             # 결석 3회 이상인 멤버 검색
