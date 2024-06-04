@@ -336,8 +336,8 @@ async def end_study_session(member_id, period_id, member):
                 else:
                     # activity_log에 데이터 없으면 새로 생성
                     cursor.execute(
-                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time) VALUES (%s, %s, %s, %s, %s, %s)",
-                        (member_id, period_id, log_date, duration, day_duration, night_duration)
+                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s)",
+                        (member_id, period_id, log_date, duration, day_duration, night_duration, 'Day' if day_duration >= night_duration else 'Night')
                     )
                     cursor.execute(
                         "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
@@ -363,7 +363,7 @@ async def end_study_session(member_id, period_id, member):
             else:
                 connection.commit()
                 return True, f"{member.mention}님 공부 시간이 5분 미만이어서 기록되지 않았습니다."
-        except Error as e:
+        except Exception as e:
             print(f"에러 발생: '{e}'")
             connection.rollback()
             return False, None
@@ -952,13 +952,13 @@ async def on_voice_state_update(member, before, after):
             cursor.close()
             connection.close()
 
-            # 카메라가 켜져 있는 상태로 음성 채널에 들어갔을 때
-            if before.channel is None and after.channel is not None and after.self_video:
+            # 음성 채널에 들어가서 카메라를 켰을 때 공부 시작
+            if after.channel is not None and after.self_video and (before.channel is None or not before.self_video):
                 await ch.send(f"{member.mention} 공부 시작!✏️")
                 start_study_session(member_id, period_id, member.display_name)
 
-            # 카메라가 켜져 있는 상태로 음성 채널을 나갔을 때
-            elif before.channel is not None and after.channel is None and before.self_video:
+            # 카메라가 켜져 있는 상태에서 음성 채널을 나가거나 카메라를 끌 때 공부 종료
+            elif before.channel is not None and before.self_video and (after.channel is None or not after.self_video):
                 print(f"{member.display_name}님의 공부 세션을 종료합니다.")
                 success, message = await end_study_session(member_id, period_id, member)
                 if success and message:
@@ -966,17 +966,9 @@ async def on_voice_state_update(member, before, after):
                 else:
                     print(f"{member.display_name}님의 공부 세션 종료 실패")
 
-            # 카메라가 켜져 있는 상태에서 카메라를 끌 때
-            elif before.self_video is True and after.self_video is False:
-                print(f"{member.display_name}님의 공부 세션을 종료합니다.")
-                success, message = await end_study_session(member_id, period_id, member)
-                if success and message:
-                    await ch.send(message)  # 공부기록됐다~ 메시지 전송
-                else:
-                    print(f"{member.display_name}님의 공부 세션 종료 실패")
-
-        except Error as e:
+        except Exception as e:
             print(f"에러 발생: '{e}'")
+        finally:
             cursor.close()
             connection.close()
     else:
@@ -1045,8 +1037,8 @@ def log_message_count(member_id):
             else:
                 # 존재하지 않으면 새로운 로그 생성
                 cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count) VALUES (%s, %s, %s, %s)",
-                    (member_id, get_active_period_id(member_id), log_date, 1)
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 1, 0, 0, 0, False, 0, 0, 'Day')
                 )
             connection.commit()
         except Exception as e:
@@ -1100,8 +1092,8 @@ def log_login_count(member_id):
             else:
                 # 존재하지 않으면 새로운 로그 생성
                 cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_login_count) VALUES (%s, %s, %s, %s)",
-                    (member_id, get_active_period_id(member_id), log_date, 1)
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 0, 0, 0, 0, False, 1, 0, 'Day')
                 )
             connection.commit()
         except Exception as e:
@@ -1142,8 +1134,8 @@ def log_reaction_count(member_id):
             else:
                 # 존재하지 않으면 새로운 로그 생성
                 cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_reaction_count) VALUES (%s, %s, %s, %s)",
-                    (member_id, get_active_period_id(member_id), log_date, 1)
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 0, 0, 0, 0, False, 0, 1, 'Day')
                 )
             connection.commit()
         except Exception as e:
