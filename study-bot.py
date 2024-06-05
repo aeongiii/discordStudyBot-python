@@ -356,8 +356,11 @@ def save_all_sessions():
 def graceful_shutdown(signum, frame):
     print("Heroku 재부팅 감지됨. 안전하게 종료 중...")
     save_all_sessions()
+
+    # 비동기작업 완료 후 시스템 종료하기
     loop = asyncio.get_event_loop()
-    loop.create_task(send_shutdown_messages())
+    loop.run_until_complete(send_shutdown_messages())
+    
     sys.exit(0)
 
 # 시그널 등록
