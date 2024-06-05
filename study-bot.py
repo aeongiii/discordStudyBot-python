@@ -391,6 +391,9 @@ async def send_shutdown_messages():
                         (end_time, duration, member_id, period_id)
                     )
 
+                    user = discord.utils.get(client.get_all_members(), id=member_id)
+                    ch = client.get_channel(1239098139361808429)
+
                     if duration >= 5:
                         day_duration, night_duration = calculate_day_night_duration(start_dt, end_dt)
                         log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
@@ -400,7 +403,7 @@ async def send_shutdown_messages():
                             (member_id, period_id, log_date)
                         )
                         log_result = cursor.fetchone()
-                        
+
                         if log_result:
                             log_id, log_day_study_time, log_night_study_time = log_result
                             new_day_study_time = log_day_study_time + day_duration
@@ -432,10 +435,11 @@ async def send_shutdown_messages():
                             (active_period, log_id)
                         )
 
-                    user = discord.utils.get(client.get_all_members(), id=member_id)
-                    if user:
-                        ch = client.get_channel(1239098139361808429)  # 공부기록 채널에 전송
-                        await ch.send(f"{user.mention}님, {duration}분 동안 공부했습니다! 자동 종료되었습니다.")
+                        if user:
+                            await ch.send(f"{user.mention}님, {duration}분 동안 공부중!")
+                    else:
+                        if user:
+                            await ch.send(f"{user.mention}님 공부 시간이 5분 미만이어서 기록되지 않았습니다.")
             connection.commit()
         except Error as e:
             print(f"'{e}' 에러 발생")
@@ -1227,7 +1231,7 @@ async def on_voice_state_update(member, before, after):
 
             # 음성 채널에 들어가서 카메라를 켰을 때 공부 시작
             if after.channel is not None and after.self_video and (before.channel is None or not before.self_video):
-                await ch.send(f"{member.mention} 공부 시작!✏️")
+                await ch.send(f"{member.mention}님 공부 시작!✏️")
                 start_study_session(member_id, period_id, member.display_name)
 
             # 카메라가 켜져 있는 상태에서 음성 채널을 나가거나 카메라를 끌 때 공부 종료
