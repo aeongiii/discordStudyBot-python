@@ -22,6 +22,22 @@ token = os.getenv('TOKEN')
 database_url = os.getenv('DATABASE_URL')
 
 
+# intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
+intents = discord.Intents.default()
+intents.messages = True  # 메시지를 읽고 반응하도록
+intents.message_content = True  # 메시지 내용에 접근
+intents.guilds = True  # 채널
+intents.voice_states = True #음성 상태 정보 갱신
+intents.members = True  # 멤버 관련 이벤트 처리 활성화
+intents.presences = True  # 멤버의 상태 변화 감지 활성화
+intents.reactions = True  # 반응 관련 이벤트 처리 활성화
+
+# 봇 클라이언트 설정
+client = discord.Client(intents = intents)
+
+
+
+# ---------------------------------------- 데이터베이스 연결 설정 ----------------------------------------
     
 # PostgreSQL 데이터베이스 연결 설정 -- 기존 mariaDB에서 PostgreSQL로 변경
 def create_db_connection():
@@ -32,6 +48,7 @@ def create_db_connection():
         print(f"Error: '{e}'")
         return None
     
+
 # ---------------------------------------- 이틀이 지난 공부 세션 정보는 DB에서 삭제 ----------------------------------------
 
 # 이틀이 지난 데이터를 삭제하는 함수 (이틀이 지나면 그 다음 0시에 삭제됨)
@@ -58,12 +75,198 @@ def delete_old_sessions():
         print("DB 연결 실패")
 
 
+# ---------------------------------------- 스케줄러 ----------------------------------------
+
 # 스케줄러 설정 :: 실제 한국 시간에 따라 일간/주간 공부순위 안내하는 함수 예약 시 사용
 scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
 scheduler.add_job(delete_old_sessions, 'cron', hour=0, minute=0)
+
+
+# 자정에 end_study_session_at_midnight 함수 예약
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+async def schedule_midnight_tasks():
+    print("자정 재부팅 시작. 안전하게 종료 중...")
+    await end_study_session_at_midnight()
+
+
+# 매일 0시에 결석 체크 + 익일에 탈퇴 처리
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+async def check_absences():
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            # 'Asia/Seoul' 타임존 기준으로 현재 날짜와 어제 날짜 계산
+            cursor.execute("SELECT CURRENT_DATE AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
+            current_date, yesterday = cursor.fetchone()
+            
+            # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
+            cursor.execute("""
+                SELECT m.member_id, m.member_nickname
+                FROM member m
+                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = %s
+                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= %s
+                WHERE v.member_id IS NULL AND s.member_id IS NULL
+            """, (current_date, current_date))
+            results = cursor.fetchall()
+
+            if results:
+                for result in results:
+                    member_id = result[0]
+                    member_nickname = result[1]
+
+                    # 결석한 멤버의 activity_log에 새로운 열 추가
+                    cursor.execute("""
+                        INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
+                    """, (member_id, 1, current_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
+
+                    await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정
+
+            # 결석 3회 이상인 멤버 검색
+            cursor.execute("""
+                SELECT cp.member_id, m.member_nickname 
+                FROM churn_prediction cp
+                JOIN member m ON cp.member_id = m.member_id
+                WHERE cp.prediction_absence_count >= 3 
+                AND cp.prediction_date <= %s
+            """, (yesterday,))
+            results = cursor.fetchall()
+
+            if results:
+                for result in results:
+                    member_id = result[0]
+                    member_nickname = result[1]
+                    user = discord.utils.get(client.get_all_members(), id=member_id)
+                    if user:
+                        try:
+                            await user.send(f"{member_nickname}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
+                        except discord.Forbidden:
+                            print(f"DM을 보낼 수 없습니다: {member_nickname}")
+
+            # 익일 0시에 탈퇴 처리
+            await asyncio.sleep(86400)  # 24시간 대기
+            if results:
+                for result in results:
+                    member_id = result[0]
+                    member_nickname = result[1]
+                    guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
+                    if guild:
+                        member = discord.utils.get(guild.members, id=member_id)
+                        if member:
+                            await guild.kick(member, reason="스터디 조건 미달")
+                        else:
+                            print(f"Member {member_nickname} not found in guild {guild.name}")
+                    else:
+                        print(f"Guild with ID {1238886734725648496} not found")
+
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+# 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+async def send_daily_study_ranking():
+    await client.wait_until_ready()
+    if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
+        return  # 월요일은 일일 순위 표시 xxx
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            # 'Asia/Seoul' 타임존 기준으로 어제 날짜 계산
+            cursor.execute("SELECT (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
+            yesterday = cursor.fetchone()[0]
+
+            # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
+            cursor.execute("""
+                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
+                FROM member m
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
+                WHERE m.member_id IN (
+                    SELECT member_id FROM activity_log WHERE log_date = %s
+                ) OR m.member_id IN (
+                    SELECT member_id FROM vacation_log WHERE vacation_date = %s
+                )
+                GROUP BY m.member_nickname
+                ORDER BY total_study_time DESC
+            """, (yesterday, yesterday, yesterday))
+            results = cursor.fetchall()
+
+            ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
+            for i, (nickname, total_study_time) in enumerate(results, start=1):
+                hours, minutes = divmod(total_study_time, 60)
+                ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
+
+            if not results:
+                ranking_message += "어제는 공부한 멤버가 없습니다.\n"
+
+            ch = client.get_channel(1239098139361808429)
+            await ch.send(ranking_message)
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+# 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
+@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
+async def send_weekly_study_ranking():
+    await client.wait_until_ready()
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            # 'Asia/Seoul' 타임존 기준으로 지난 주 시작 날짜와 종료 날짜 계산
+            cursor.execute("""
+                SELECT (CURRENT_DATE - INTERVAL '7 days') AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'
+            """)
+            last_week_start, last_week_end = cursor.fetchone()
+
+            # 지난 주에 공부한 멤버들의 공부시간 가져오기
+            cursor.execute("""
+                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
+                FROM activity_log a
+                JOIN member m ON a.member_id = m.member_id
+                WHERE a.log_date BETWEEN %s AND %s
+                GROUP BY m.member_nickname, a.member_id
+                ORDER BY total_study_time DESC
+            """, (last_week_start, last_week_end))
+            results = cursor.fetchall()
+
+            ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
+            for i, (nickname, total_study_time) in enumerate(results, start=1):
+                hours, minutes = divmod(total_study_time, 60)
+                ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
+
+            if not results:
+                ranking_message += "지난 주에는 공부한 멤버가 없습니다.\n"
+
+            ch = client.get_channel(1239098139361808429)
+            await ch.send(ranking_message)
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+
+# 스케줄러 시작
 scheduler.start()
-    
-# ---------------------------------------- Heroku에서 24시간마다 서버 재시작함 :: 재시작 감지되면 직전까지의 데이터 저장하는 함수 ----------------------------------------
+
+
+# ---------------------------------------- Heroku 재시작 처리 ----------------------------------------
     
 # 모든 세션 저장 함수
 def save_all_sessions():
@@ -273,7 +476,7 @@ async def start_sessions_for_active_cameras():
     else:
         print("DB 연결 실패")
 
-# ---------------------------------------- 서버 참여 / 서버 탈퇴 함수 ----------------------------------------
+# ---------------------------------------- 서버 참여 및 탈퇴 처리 ----------------------------------------
 
 # 멤버 정보 & 멤버십 기간 등록
 def insert_member_and_period(member):
@@ -353,7 +556,7 @@ def handle_member_leave(member):
     else:
         print("DB 연결 실패")
 
-# ---------------------------------------- 공지 관련 함수 ----------------------------------------       
+# ---------------------------------------- 공지 및 휴가신청 처리 ----------------------------------------       
 
 # '공지' 입력 시 공지사항 출력 함수 
 async def send_announcement(channel, author_mention):
@@ -370,7 +573,92 @@ async def send_announcement(channel, author_mention):
     await channel.send(embed=embed)        
 
 
-# ---------------------------------------- 공부 시작 / 공부 종료 함수 ----------------------------------------
+# 휴가 신청 함수
+async def process_vacation_request(message):
+    if message.channel.id == 1238896271939338282:  # [휴가신청] 채널
+        connection = create_db_connection()
+        if connection:
+            cursor = connection.cursor()
+            try:
+                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
+                result = cursor.fetchone()
+                if result:
+                    member_id = result[0]
+                    cursor.close()
+
+                    cursor = connection.cursor()  
+                    # period_id 조회
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
+                    result = cursor.fetchone()
+                    if result:
+                        period_id = result[0]
+                        cursor.close()
+                        # insert_vacation_log 함수를 호출하여 휴가 기록 추가
+                        success, response_message = insert_vacation_log(member_id, period_id, message.author)
+                        await message.channel.send(response_message)
+                    else:
+                        await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
+                else:
+                    await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
+            except Error as e:
+                print(f"'{e}' 에러 발생")
+            finally:
+                cursor.close()
+                connection.close()
+        else:
+            await message.channel.send("DB 연결 실패")
+    else:
+        await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
+
+
+# 휴가 기록 추가 함수
+def insert_vacation_log(member_id, period_id, member):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        vacation_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
+
+        try:
+            # 이번 주에 이미 휴가를 사용했는지 확인
+            cursor.execute(
+                "SELECT vacation_date FROM vacation_log WHERE member_id = %s AND period_id = %s AND vacation_week_start = %s",
+                (member_id, period_id, vacation_week_start)
+            )
+            result = cursor.fetchone()
+            if result:
+                already_used_date = result[0].strftime('%Y-%m-%d')
+                return False, f"{member.mention}님, 이미 이번주에 휴가를 사용했어요! 휴가 사용일: {already_used_date}"
+
+            # vacation_log 테이블에 기록 추가
+            cursor.execute(
+                "INSERT INTO vacation_log (member_id, period_id, vacation_date, vacation_week_start) VALUES (%s, %s, %s, %s)",
+                (member_id, period_id, vacation_date, vacation_week_start)
+            )
+
+            # activity_log 테이블에 출석 기록 추가 또는 업데이트
+            cursor.execute(
+                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance",
+                (member_id, period_id, vacation_date, 0, 0, 0, True)
+            )
+
+            connection.commit()
+            return True, f"{member.mention}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
+            
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+            return False, None
+
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        return False, None
+
+
+
+# ---------------------------------------- 공부 시작 및 종료 처리 ----------------------------------------
 
 # 공부 세션 시작 정보 저장
 def start_study_session(member_id, period_id, member_display_name):
@@ -511,8 +799,6 @@ def calculate_day_night_duration(start_dt, end_dt):
     return day_duration, night_duration
 
 
-    
-
 # 매일 11시 59분이 되면 공부 정보를 모두 저장함 + 0시 0분에 카메라 켜져있는 멤버 공부 시작시킴
 async def end_study_session_at_midnight():
     connection = create_db_connection()
@@ -551,13 +837,8 @@ async def end_study_session_at_midnight():
         print("DB 연결 실패")
 
 
-# 자정에 end_study_session_at_midnight 함수 예약  : 자정까지의 내용을 모두 저장.
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
-async def schedule_midnight_tasks():
-    print("자정 재부팅 시작. 안전하게 종료 중...")
-    await end_study_session_at_midnight()
+# ---------------------------------------- 결석 처리 ----------------------------------------
 
-# ---------------------------------------- 결석일수 관리 함수 ----------------------------------------
 # 멤버 결석 처리 함수 -- 결석 시 안내 // 결석 3회 시 안내 후 탈퇴처리 (다이렉트 메세지로)
 async def process_absence(member_id, period_id, member_display_name):
     connection = create_db_connection()
@@ -616,271 +897,9 @@ def get_risk_level(absence_count):
         return 'Moderate'
     else:
         return 'High'
-    
-# 매일 0시에 결석 체크 + 익일에 탈퇴 처리
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
-async def check_absences():
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        try:
-            # 'Asia/Seoul' 타임존 기준으로 현재 날짜와 어제 날짜 계산
-            cursor.execute("SELECT CURRENT_DATE AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
-            current_date, yesterday = cursor.fetchone()
-            
-            # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
-            cursor.execute("""
-                SELECT m.member_id, m.member_nickname
-                FROM member m
-                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = %s
-                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= %s
-                WHERE v.member_id IS NULL AND s.member_id IS NULL
-            """, (current_date, current_date))
-            results = cursor.fetchall()
-
-            if results:
-                for result in results:
-                    member_id = result[0]
-                    member_nickname = result[1]
-
-                    # 결석한 멤버의 activity_log에 새로운 열 추가
-                    cursor.execute("""
-                        INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
-                    """, (member_id, 1, current_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
-
-                    await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정
-
-            # 결석 3회 이상인 멤버 검색
-            cursor.execute("""
-                SELECT cp.member_id, m.member_nickname 
-                FROM churn_prediction cp
-                JOIN member m ON cp.member_id = m.member_id
-                WHERE cp.prediction_absence_count >= 3 
-                AND cp.prediction_date <= %s
-            """, (yesterday,))
-            results = cursor.fetchall()
-
-            if results:
-                for result in results:
-                    member_id = result[0]
-                    member_nickname = result[1]
-                    user = discord.utils.get(client.get_all_members(), id=member_id)
-                    if user:
-                        try:
-                            await user.send(f"{member_nickname}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
-                        except discord.Forbidden:
-                            print(f"DM을 보낼 수 없습니다: {member_nickname}")
-
-            # 익일 0시에 탈퇴 처리
-            await asyncio.sleep(86400)  # 24시간 대기
-            if results:
-                for result in results:
-                    member_id = result[0]
-                    member_nickname = result[1]
-                    guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
-                    if guild:
-                        member = discord.utils.get(guild.members, id=member_id)
-                        if member:
-                            await guild.kick(member, reason="스터디 조건 미달")
-                        else:
-                            print(f"Member {member_nickname} not found in guild {guild.name}")
-                    else:
-                        print(f"Guild with ID {1238886734725648496} not found")
-
-        except Error as e:
-            print(f"'{e}' 에러 발생")
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
-
-
-
-
-        
-# ---------------------------------------- 휴가 신청 함수 ----------------------------------------
-
-# 휴가 신청 함수
-async def process_vacation_request(message):
-    if message.channel.id == 1238896271939338282:  # [휴가신청] 채널
-        connection = create_db_connection()
-        if connection:
-            cursor = connection.cursor()
-            try:
-                cursor.execute("SELECT member_id FROM member WHERE member_username = %s", (str(message.author),))
-                result = cursor.fetchone()
-                if result:
-                    member_id = result[0]
-                    cursor.close()
-
-                    cursor = connection.cursor()  
-                    # period_id 조회
-                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
-                    result = cursor.fetchone()
-                    if result:
-                        period_id = result[0]
-                        cursor.close()
-                        # insert_vacation_log 함수를 호출하여 휴가 기록 추가
-                        success, response_message = insert_vacation_log(member_id, period_id, message.author)
-                        await message.channel.send(response_message)
-                    else:
-                        await message.channel.send(f"{message.author.mention}님의 활동 기간을 찾을 수 없습니다.")
-                else:
-                    await message.channel.send(f"{message.author.mention}님의 정보를 찾을 수 없습니다.")
-            except Error as e:
-                print(f"'{e}' 에러 발생")
-            finally:
-                cursor.close()
-                connection.close()
-        else:
-            await message.channel.send("DB 연결 실패")
-    else:
-        await message.channel.send(f"{message.author.mention}님, 휴가신청은 [휴가신청] 채널에서 부탁드려요!")
-
-# 휴가 기록 추가 함수
-def insert_vacation_log(member_id, period_id, member):
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        vacation_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-        vacation_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday())).strftime('%Y-%m-%d')
-
-        try:
-            # 이번 주에 이미 휴가를 사용했는지 확인
-            cursor.execute(
-                "SELECT vacation_date FROM vacation_log WHERE member_id = %s AND period_id = %s AND vacation_week_start = %s",
-                (member_id, period_id, vacation_week_start)
-            )
-            result = cursor.fetchone()
-            if result:
-                already_used_date = result[0].strftime('%Y-%m-%d')
-                return False, f"{member.mention}님, 이미 이번주에 휴가를 사용했어요! 휴가 사용일: {already_used_date}"
-
-            # vacation_log 테이블에 기록 추가
-            cursor.execute(
-                "INSERT INTO vacation_log (member_id, period_id, vacation_date, vacation_week_start) VALUES (%s, %s, %s, %s)",
-                (member_id, period_id, vacation_date, vacation_week_start)
-            )
-
-            # activity_log 테이블에 출석 기록 추가 또는 업데이트
-            cursor.execute(
-                "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance",
-                (member_id, period_id, vacation_date, 0, 0, 0, True)
-            )
-
-            connection.commit()
-            return True, f"{member.mention}님, 휴가신청이 완료되었습니다! 재충전하고 내일 만나요!☀️"
-            
-        except Error as e:
-            print(f"'{e}' 에러 발생")
-            connection.rollback()
-            return False, None
-
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        return False, None
-    
-
-# ---------------------------------------- 일일/주간 공부 시간 순위 표시 함수 ----------------------------------------
-
-# 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
-async def send_daily_study_ranking():
-    await client.wait_until_ready()
-    if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
-        return  # 월요일은 일일 순위 표시 xxx
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        try:
-            # 'Asia/Seoul' 타임존 기준으로 어제 날짜 계산
-            cursor.execute("SELECT (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
-            yesterday = cursor.fetchone()[0]
-
-            # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
-            cursor.execute("""
-                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
-                FROM member m
-                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
-                WHERE m.member_id IN (
-                    SELECT member_id FROM activity_log WHERE log_date = %s
-                ) OR m.member_id IN (
-                    SELECT member_id FROM vacation_log WHERE vacation_date = %s
-                )
-                GROUP BY m.member_nickname
-                ORDER BY total_study_time DESC
-            """, (yesterday, yesterday, yesterday))
-            results = cursor.fetchall()
-
-            ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
-            for i, (nickname, total_study_time) in enumerate(results, start=1):
-                hours, minutes = divmod(total_study_time, 60)
-                ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
-
-            if not results:
-                ranking_message += "어제는 공부한 멤버가 없습니다.\n"
-
-            ch = client.get_channel(1239098139361808429)
-            await ch.send(ranking_message)
-        except Error as e:
-            print(f"'{e}' 에러 발생")
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
-
-
-# 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
-async def send_weekly_study_ranking():
-    await client.wait_until_ready()
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        try:
-            # 'Asia/Seoul' 타임존 기준으로 지난 주 시작 날짜와 종료 날짜 계산
-            cursor.execute("""
-                SELECT (CURRENT_DATE - INTERVAL '7 days') AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'
-            """)
-            last_week_start, last_week_end = cursor.fetchone()
-
-            # 지난 주에 공부한 멤버들의 공부시간 가져오기
-            cursor.execute("""
-                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
-                FROM activity_log a
-                JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date BETWEEN %s AND %s
-                GROUP BY m.member_nickname, a.member_id
-                ORDER BY total_study_time DESC
-            """, (last_week_start, last_week_end))
-            results = cursor.fetchall()
-
-            ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
-            for i, (nickname, total_study_time) in enumerate(results, start=1):
-                hours, minutes = divmod(total_study_time, 60)
-                ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
-
-            if not results:
-                ranking_message += "지난 주에는 공부한 멤버가 없습니다.\n"
-
-            ch = client.get_channel(1239098139361808429)
-            await ch.send(ranking_message)
-        except Error as e:
-            print(f"'{e}' 에러 발생")
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
    
 
-# ---------------------------------------- 내 정보 확인 함수 ----------------------------------------
+# ---------------------------------------- 공부시간 안내 ----------------------------------------
 
 # 공부시간 안내 함수 (휴가 신청했어도 실제 공부시간으로 안내되도록)
 async def send_study_time_info(user, member_id, period_id):
@@ -952,27 +971,146 @@ async def send_study_time_info(user, member_id, period_id):
 
 
 
+# ---------------------------------------- 데이터 수집 ----------------------------------------
+
+
+# 메시지 수 카운팅하는 함수
+def log_message_count(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        try:
+            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
+            cursor.execute(
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                (member_id, log_date)
+            )
+            log_id = cursor.fetchone()
+            if log_id:
+                # 이미 존재하는 로그가 있으면 메시지 수 업데이트
+                cursor.execute(
+                    "UPDATE activity_log SET log_message_count = log_message_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
+                )
+            else:
+                # 존재하지 않으면 새로운 로그 생성
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 1, 0, 0, 0, False, 0, 0, 'Day')
+                )
+            connection.commit()
+        except Exception as e:
+            print(f"Error logging message count: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+# 메시지 수 카운팅하기 위해 활동중인 Period_id 가져오는 함수
+def get_active_period_id(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            cursor.execute(
+                "SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE",
+                (member_id,)
+            )
+            period_id = cursor.fetchone()
+            if period_id:
+                return period_id[0]
+        except Exception as e:
+            print(f"Error getting active period id: {e}")
+        finally:
+            cursor.close()
+            connection.close()
+    return None
+
+# 로그인 횟수를 기록하는 함수 (활동 상태가 온라인으로 변하면 로그인했다고 본다.)
+def log_login_count(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        try:
+            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
+            cursor.execute(
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                (member_id, log_date)
+            )
+            log_id = cursor.fetchone()
+            if log_id:
+                # 이미 존재하는 로그가 있으면 로그인 수 업데이트
+                cursor.execute(
+                    "UPDATE activity_log SET log_login_count = log_login_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
+                )
+            else:
+                # 존재하지 않으면 새로운 로그 생성
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 0, 0, 0, 0, False, 1, 0, 'Day')
+                )
+            connection.commit()
+        except Exception as e:
+            print(f"Error logging login count: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+    
+
+# 반응 횟수를 기록하는 함수
+def log_reaction_count(member_id):
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+        try:
+            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
+            cursor.execute(
+                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                (member_id, log_date)
+            )
+            log_id = cursor.fetchone()
+            if log_id:
+                # 이미 존재하는 로그가 있으면 반응 수 업데이트
+                cursor.execute(
+                    "UPDATE activity_log SET log_reaction_count = log_reaction_count + 1 WHERE log_id = %s",
+                    (log_id[0],)
+                )
+            else:
+                # 존재하지 않으면 새로운 로그 생성
+                cursor.execute(
+                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (member_id, get_active_period_id(member_id), log_date, 0, 0, 0, 0, False, 0, 1, 'Day')
+                )
+            connection.commit()
+        except Exception as e:
+            print(f"Error logging reaction count: {e}")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
+
+        
 # ================================================ 서버 이벤트 ================================================
 
-# intent를 추가하여 봇이 서버의 특정 이벤트를 구독하도록 허용
-intents = discord.Intents.default()
-intents.messages = True  # 메시지를 읽고 반응하도록
-intents.message_content = True  # 메시지 내용에 접근
-intents.guilds = True  # 채널
-intents.voice_states = True #음성 상태 정보 갱신
-intents.members = True  # 멤버 관련 이벤트 처리 활성화
-intents.presences = True  # 멤버의 상태 변화 감지 활성화
-intents.reactions = True  # 반응 관련 이벤트 처리 활성화
 
-# 봇 클라이언트 설정
-client = discord.Client(intents = intents)
 
 # 봇이 실행중일 때 상태메시지
 @client.event
 async def on_ready():
     print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
+    # scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)  -- 맨 아래 이미 start() 코드 있음!
             # check_absences.start()  # 결석체크 함수 예약
             # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
             # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
@@ -1112,136 +1250,6 @@ async def on_voice_state_update(member, before, after):
     else:
         print("DB 연결 실패")
 
-# 11:59가 되면 공부시간 저장
-async def end_study_session_at_midnight():
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        try:
-            end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d 23:59:59')
-            # 현재 진행 중인 모든 세션을 종료
-            cursor.execute(
-                "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
-            )
-            results = cursor.fetchall()
-            for member_id, period_id in results:
-                await end_study_session(member_id, period_id, "자동 종료")
-
-            # 카메라가 켜져 있는 멤버들의 새로운 공부 세션 시작
-            cursor.execute(
-                """
-                SELECT DISTINCT ss.member_id, mp.period_id
-                FROM study_session ss
-                JOIN membership_period mp ON ss.member_id = mp.member_id
-                WHERE ss.session_end_time = %s AND mp.period_now_active = TRUE
-                """,
-                (end_time,)
-            )
-            member_ids = cursor.fetchall()
-            for member_id, period_id in member_ids:
-                start_study_session(member_id, period_id, "자동 시작")
-        except Error as e:
-            print(f"'{e}' 에러 발생")
-            connection.rollback()
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
-
-
-# ---------------------------------------- 데이터 수집 함수 ----------------------------------------
-
-
-# 메시지 수 카운팅하는 함수
-def log_message_count(member_id):
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-        try:
-            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
-            cursor.execute(
-                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
-                (member_id, log_date)
-            )
-            log_id = cursor.fetchone()
-            if log_id:
-                # 이미 존재하는 로그가 있으면 메시지 수 업데이트
-                cursor.execute(
-                    "UPDATE activity_log SET log_message_count = log_message_count + 1 WHERE log_id = %s",
-                    (log_id[0],)
-                )
-            else:
-                # 존재하지 않으면 새로운 로그 생성
-                cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (member_id, get_active_period_id(member_id), log_date, 1, 0, 0, 0, False, 0, 0, 'Day')
-                )
-            connection.commit()
-        except Exception as e:
-            print(f"Error logging message count: {e}")
-            connection.rollback()
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
-
-# 메시지 수 카운팅하기 위해 활동중인 Period_id 가져오는 함수
-def get_active_period_id(member_id):
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        try:
-            cursor.execute(
-                "SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE",
-                (member_id,)
-            )
-            period_id = cursor.fetchone()
-            if period_id:
-                return period_id[0]
-        except Exception as e:
-            print(f"Error getting active period id: {e}")
-        finally:
-            cursor.close()
-            connection.close()
-    return None
-
-# 로그인 횟수를 기록하는 함수 (활동 상태가 온라인으로 변하면 로그인했다고 본다.)
-def log_login_count(member_id):
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-        try:
-            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
-            cursor.execute(
-                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
-                (member_id, log_date)
-            )
-            log_id = cursor.fetchone()
-            if log_id:
-                # 이미 존재하는 로그가 있으면 로그인 수 업데이트
-                cursor.execute(
-                    "UPDATE activity_log SET log_login_count = log_login_count + 1 WHERE log_id = %s",
-                    (log_id[0],)
-                )
-            else:
-                # 존재하지 않으면 새로운 로그 생성
-                cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (member_id, get_active_period_id(member_id), log_date, 0, 0, 0, 0, False, 1, 0, 'Day')
-                )
-            connection.commit()
-        except Exception as e:
-            print(f"Error logging login count: {e}")
-            connection.rollback()
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
 
 # 멤버의 상태 변화 감지하여 로그인 횟수 기록
 @client.event
@@ -1250,47 +1258,17 @@ async def on_presence_update(before, after):
         log_login_count(after.id)
 
 
-# 반응 횟수를 기록하는 함수
-def log_reaction_count(member_id):
-    connection = create_db_connection()
-    if connection:
-        cursor = connection.cursor()
-        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-        try:
-            # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
-            cursor.execute(
-                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
-                (member_id, log_date)
-            )
-            log_id = cursor.fetchone()
-            if log_id:
-                # 이미 존재하는 로그가 있으면 반응 수 업데이트
-                cursor.execute(
-                    "UPDATE activity_log SET log_reaction_count = log_reaction_count + 1 WHERE log_id = %s",
-                    (log_id[0],)
-                )
-            else:
-                # 존재하지 않으면 새로운 로그 생성
-                cursor.execute(
-                    "INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_day_study_time, log_night_study_time, log_attendance, log_login_count, log_reaction_count, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                    (member_id, get_active_period_id(member_id), log_date, 0, 0, 0, 0, False, 0, 1, 'Day')
-                )
-            connection.commit()
-        except Exception as e:
-            print(f"Error logging reaction count: {e}")
-            connection.rollback()
-        finally:
-            cursor.close()
-            connection.close()
-    else:
-        print("DB 연결 실패")
-
 # 반응 추가 이벤트 감지하여 반응 횟수 기록
 @client.event
 async def on_reaction_add(reaction, user):
     if not user.bot:  # 봇의 반응은 무시
         print(f" {user.name} ({user.id}) 님이 메시지 ({reaction.message.id})에 반응을 남겼습니다.") # 로그 추가
         log_reaction_count(user.id)
+
+
+
+
+# ---- 토큰
 
 
 # 봇 실행 토큰
