@@ -434,7 +434,7 @@ async def send_shutdown_messages():
 
                     user = discord.utils.get(client.get_all_members(), id=member_id)
                     if user:
-                        ch = client.get_channel(1239098139361808429)
+                        ch = client.get_channel(1239098139361808429)  # 공부기록 채널에 전송
                         await ch.send(f"{user.mention}님, {duration}분 동안 공부했습니다! 자동 종료되었습니다.")
             connection.commit()
         except Error as e:
@@ -468,7 +468,7 @@ async def start_sessions_for_active_cameras():
                                     period_id = result[0]
                                     start_study_session(member_id, period_id, member.display_name)
                                     ch = client.get_channel(1239098139361808429)
-                                    await ch.send(f"{member.display_name}님 공부 시작!✏️")
+                                    await ch.send(f"{member.mention}님 공부 시작!✏️")
         except Error as e:
             print(f"'{e}' 에러 발생")
         finally:
