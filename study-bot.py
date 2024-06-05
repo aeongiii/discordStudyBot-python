@@ -14,7 +14,7 @@ from psycopg2 import Error
 from apscheduler.schedulers.asyncio import AsyncIOScheduler # 실제 시간에 따른 작업 스케줄러
 
 
-# .env 파일애서 토큰 가져오기 (로컬 테스트 시 사용)
+# .env 파일애서 토큰 가져오기
 load_dotenv()
 
 # Heroku 환경 변수에서 토큰 가져오기
