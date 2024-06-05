@@ -122,12 +122,96 @@ def save_all_sessions():
 def graceful_shutdown(signum, frame):
     print("Heroku 재부팅 감지됨. 안전하게 종료 중...")
     save_all_sessions()
+    asyncio.run(send_shutdown_messages())
     sys.exit(0)
 
 # 시그널 등록
 signal.signal(signal.SIGTERM, graceful_shutdown)
 signal.signal(signal.SIGINT, graceful_shutdown)  # 로컬 테스트를 위한 SIGINT 핸들러 추가
 
+# 재부팅 시 공부 종료/시작할 때도 똑같은 안내 보내기.
+async def send_shutdown_messages():
+    connection = create_db_connection()
+    if connection:
+        cursor = connection.cursor()
+        try:
+            end_time = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute(
+                "SELECT member_id, period_id FROM study_session WHERE session_end_time IS NULL"
+            )
+            results = cursor.fetchall()
+            for member_id, period_id in results:
+                cursor.execute(
+                    "SELECT session_start_time FROM study_session WHERE member_id = %s AND period_id = %s ORDER BY session_id DESC LIMIT 1",
+                    (member_id, period_id)
+                )
+                start_time_result = cursor.fetchone()
+                if start_time_result:
+                    start_time = start_time_result[0]
+                    start_dt = start_time if isinstance(start_time, datetime) else datetime.strptime(start_time, '%Y-%m-%d %H:%M:%S')
+                    end_dt = datetime.strptime(end_time, '%Y-%m-%d %H:%M:%S')
+                    duration = int((end_dt - start_dt).total_seconds() // 60)
+
+                    # 종료 시간 업데이트
+                    cursor.execute(
+                        "UPDATE study_session SET session_end_time = %s, session_duration = %s WHERE member_id = %s AND period_id = %s AND session_end_time IS NULL",
+                        (end_time, duration, member_id, period_id)
+                    )
+
+                    if duration >= 5:
+                        day_duration, night_duration = calculate_day_night_duration(start_dt, end_dt)
+                        log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
+
+                        cursor.execute(
+                            "SELECT log_id, log_day_study_time, log_night_study_time FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                            (member_id, period_id, log_date)
+                        )
+                        log_result = cursor.fetchone()
+                        
+                        if log_result:
+                            log_id, log_day_study_time, log_night_study_time = log_result
+                            new_day_study_time = log_day_study_time + day_duration
+                            new_night_study_time = log_night_study_time + night_duration
+                            cursor.execute(
+                                "UPDATE activity_log SET log_study_time = log_study_time + %s, log_day_study_time = %s, log_night_study_time = %s WHERE log_id = %s",
+                                (duration, new_day_study_time, new_night_study_time, log_id)
+                            )
+                        else:
+                            cursor.execute(
+                                "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time) VALUES (%s, %s, %s, %s, %s, %s)",
+                                (member_id, period_id, log_date, duration, day_duration, night_duration)
+                            )
+                            cursor.execute(
+                                "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
+                                (member_id, period_id, log_date)
+                            )
+                            log_id = cursor.fetchone()[0]
+
+                        if day_duration > night_duration:
+                            active_period = 'Day'
+                        elif night_duration > day_duration:
+                            active_period = 'Night'
+                        else:
+                            active_period = 'Day'
+
+                        cursor.execute(
+                            "UPDATE activity_log SET log_active_period = %s WHERE log_id = %s",
+                            (active_period, log_id)
+                        )
+
+                    user = discord.utils.get(client.get_all_members(), id=member_id)
+                    if user:
+                        ch = client.get_channel(1239098139361808429)
+                        await ch.send(f"{user.mention}님, {duration}분 동안 공부했습니다! 자동 종료되었습니다.")
+            connection.commit()
+        except Error as e:
+            print(f"'{e}' 에러 발생")
+            connection.rollback()
+        finally:
+            cursor.close()
+            connection.close()
+    else:
+        print("DB 연결 실패")
 
 # 봇이 재시작되었을 때 현재 카메라가 켜져있는 멤버들에 대해 새로운 세션을 시작하는 함수
 async def start_sessions_for_active_cameras():
