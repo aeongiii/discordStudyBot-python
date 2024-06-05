@@ -102,11 +102,12 @@ async def check_absences():
             
             # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
             cursor.execute("""
-                SELECT m.member_id, m.member_nickname
+                SELECT m.member_id, m.member_nickname, mp.period_id
                 FROM member m
+                JOIN membership_period mp ON m.member_id = mp.member_id AND mp.period_now_active = TRUE
                 LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = %s
-                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= %s
-                WHERE v.member_id IS NULL AND s.member_id IS NULL
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
+                WHERE v.member_id IS NULL AND (a.log_study_time IS NULL OR a.log_study_time = 0)
             """, (current_date, current_date))
             results = cursor.fetchall()
 
@@ -114,15 +115,16 @@ async def check_absences():
                 for result in results:
                     member_id = result[0]
                     member_nickname = result[1]
+                    period_id = result[2]
 
                     # 결석한 멤버의 activity_log에 새로운 열 추가
                     cursor.execute("""
                         INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
-                    """, (member_id, 1, current_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
+                        ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance;
+                    """, (member_id, period_id, current_date, 0, 0, 0, False, 0, None, None, None))
 
-                    await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정
+                    await process_absence(member_id, period_id, member_nickname)
 
             # 결석 3회 이상인 멤버 검색
             cursor.execute("""
@@ -736,14 +738,14 @@ async def end_study_session(member_id, period_id, member):
                     new_day_study_time = log_day_study_time + day_duration
                     new_night_study_time = log_night_study_time + night_duration
                     cursor.execute(
-                        "UPDATE activity_log SET log_study_time = log_study_time + %s, log_day_study_time = %s, log_night_study_time = %s WHERE log_id = %s",
-                        (duration, new_day_study_time, new_night_study_time, log_id)
+                        "UPDATE activity_log SET log_study_time = log_study_time + %s, log_day_study_time = %s, log_night_study_time = %s, log_attendance = %s WHERE log_id = %s",
+                        (duration, new_day_study_time, new_night_study_time, True, log_id)
                     )
                 else:
                     # activity_log에 데이터 없으면 새로 생성
                     cursor.execute(
-                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time, log_active_period) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-                        (member_id, period_id, log_date, duration, day_duration, night_duration, 'Day' if day_duration >= night_duration else 'Night')
+                        "INSERT INTO activity_log (member_id, period_id, log_date, log_study_time, log_day_study_time, log_night_study_time, log_active_period, log_attendance) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+                        (member_id, period_id, log_date, duration, day_duration, night_duration, 'Day' if day_duration >= night_duration else 'Night', True)
                     )
                     cursor.execute(
                         "SELECT log_id FROM activity_log WHERE member_id = %s AND period_id = %s AND log_date = %s",
