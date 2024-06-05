@@ -1111,12 +1111,8 @@ def log_reaction_count(member_id):
 async def on_ready():
     print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    # scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)  -- 맨 아래 이미 start() 코드 있음!
-            # check_absences.start()  # 결석체크 함수 예약
-            # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
-            # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
-            # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
-            # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
+    if not scheduler.running: # 스케줄러 위에서 실행시켰지만.. 혹시나 실행중이 아닐 경우
+        scheduler.start() 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
 
