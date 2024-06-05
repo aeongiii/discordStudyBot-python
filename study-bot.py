@@ -505,20 +505,24 @@ def get_risk_level(absence_count):
         return 'High'
     
 # 매일 0시에 결석 체크 + 익일에 탈퇴 처리
-@scheduler.scheduled_job('cron', hour=0, minute=0)
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def check_absences():
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
+            # 'Asia/Seoul' 타임존 기준으로 현재 날짜와 어제 날짜 계산
+            cursor.execute("SELECT CURRENT_DATE AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
+            current_date, yesterday = cursor.fetchone()
+            
             # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
             cursor.execute("""
                 SELECT m.member_id, m.member_nickname
                 FROM member m
-                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE
-                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURRENT_DATE
+                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = %s
+                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= %s
                 WHERE v.member_id IS NULL AND s.member_id IS NULL
-            """)
+            """, (current_date, current_date))
             results = cursor.fetchall()
 
             if results:
@@ -527,12 +531,11 @@ async def check_absences():
                     member_nickname = result[1]
 
                     # 결석한 멤버의 activity_log에 새로운 열 추가
-                    log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
                     cursor.execute("""
                         INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                         ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
-                    """, (member_id, 1, log_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
+                    """, (member_id, 1, current_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
 
                     await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정
 
@@ -542,8 +545,8 @@ async def check_absences():
                 FROM churn_prediction cp
                 JOIN member m ON cp.member_id = m.member_id
                 WHERE cp.prediction_absence_count >= 3 
-                AND cp.prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
-            """)
+                AND cp.prediction_date <= %s
+            """, (yesterday,))
             results = cursor.fetchall()
 
             if results:
@@ -682,19 +685,23 @@ async def send_daily_study_ranking():
     if connection:
         cursor = connection.cursor()
         try:
+            # 'Asia/Seoul' 타임존 기준으로 어제 날짜 계산
+            cursor.execute("SELECT (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
+            yesterday = cursor.fetchone()[0]
+
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
                 SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
                 FROM member m
-                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
                 WHERE m.member_id IN (
-                    SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
+                    SELECT member_id FROM activity_log WHERE log_date = %s
                 ) OR m.member_id IN (
-                    SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
+                    SELECT member_id FROM vacation_log WHERE vacation_date = %s
                 )
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
-            """)
+            """, (yesterday, yesterday, yesterday))
             results = cursor.fetchall()
 
             ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
@@ -724,15 +731,21 @@ async def send_weekly_study_ranking():
     if connection:
         cursor = connection.cursor()
         try:
+            # 'Asia/Seoul' 타임존 기준으로 지난 주 시작 날짜와 종료 날짜 계산
+            cursor.execute("""
+                SELECT (CURRENT_DATE - INTERVAL '7 days') AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'
+            """)
+            last_week_start, last_week_end = cursor.fetchone()
+
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
+                WHERE a.log_date BETWEEN %s AND %s
                 GROUP BY m.member_nickname, a.member_id
                 ORDER BY total_study_time DESC
-            """)
+            """, (last_week_start, last_week_end))
             results = cursor.fetchall()
 
             ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
@@ -762,6 +775,10 @@ async def send_study_time_info(user, member_id, period_id):
     if connection:
         cursor = connection.cursor()
         try:
+            # 'Asia/Seoul' 타임존 기준으로 오늘 날짜와 이번 주 시작 날짜 계산
+            cursor.execute("SELECT CURRENT_DATE AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE) * INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
+            current_date, week_start_date = cursor.fetchone()
+            
             # 오늘 공부시간
             cursor.execute(
                 """
@@ -769,9 +786,9 @@ async def send_study_time_info(user, member_id, period_id):
                 FROM activity_log 
                 WHERE member_id = %s 
                 AND period_id = %s 
-                AND log_date = CURRENT_DATE
+                AND log_date = %s
                 """,
-                (member_id, period_id)
+                (member_id, period_id, current_date)
             )
             today_study_time = cursor.fetchone()[0]
 
@@ -782,10 +799,10 @@ async def send_study_time_info(user, member_id, period_id):
                 FROM activity_log
                 WHERE member_id = %s 
                 AND period_id = %s
-                AND log_date >= CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE) * INTERVAL '1 day'
-                AND log_date <= CURRENT_DATE
+                AND log_date >= %s
+                AND log_date <= %s
                 """,
-                (member_id, period_id)
+                (member_id, period_id, week_start_date, current_date)
             )
             week_study_time = cursor.fetchone()[0]
 
