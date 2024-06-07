@@ -183,8 +183,7 @@ async def send_daily_study_ranking():
         cursor = connection.cursor()
         try:
             # 'Asia/Seoul' 타임존 기준으로 어제 날짜 계산
-            cursor.execute("SELECT (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
-            yesterday = cursor.fetchone()[0]
+            yesterday = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=1)).strftime('%Y-%m-%d')
 
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
@@ -229,14 +228,12 @@ async def send_weekly_study_ranking():
         cursor = connection.cursor()
         try:
             # 'Asia/Seoul' 타임존 기준으로 지난 주 시작 날짜와 종료 날짜 계산
-            cursor.execute("""
-                SELECT (CURRENT_DATE - INTERVAL '7 days') AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'
-            """)
-            last_week_start, last_week_end = cursor.fetchone()
+            last_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday() + 7)).strftime('%Y-%m-%d')
+            last_week_end = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday() + 1)).strftime('%Y-%m-%d')
 
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
-                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
+                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
                 WHERE a.log_date BETWEEN %s AND %s
