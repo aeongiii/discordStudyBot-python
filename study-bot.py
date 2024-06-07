@@ -176,14 +176,18 @@ async def check_absences():
 @scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
+    print("send_daily_study_ranking 함수 시작")  # 디버깅 로그 추가
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
+        print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")  # 디버깅 로그 추가
         return  # 월요일은 일일 순위 표시 xxx
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
             # 'Asia/Seoul' 타임존 기준으로 어제 날짜 계산
-            yesterday = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=1)).strftime('%Y-%m-%d')
+            cursor.execute("SELECT (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
+            yesterday = cursor.fetchone()[0]
+            print(f"어제 날짜: {yesterday}")  # 디버깅 로그 추가
 
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
@@ -199,6 +203,7 @@ async def send_daily_study_ranking():
                 ORDER BY total_study_time DESC
             """, (yesterday, yesterday, yesterday))
             results = cursor.fetchall()
+            print(f"공부 시간 결과: {results}")  # 디버깅 로그 추가
 
             ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
@@ -209,31 +214,36 @@ async def send_daily_study_ranking():
                 ranking_message += "어제는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
+            print(f"메시지를 보낼 채널: {ch}")  # 디버깅 로그 추가
             await ch.send(ranking_message)
         except Error as e:
-            print(f"'{e}' 에러 발생")
+            print(f"'{e}' 에러 발생")  # 디버깅 로그 추가
         finally:
             cursor.close()
             connection.close()
     else:
-        print("DB 연결 실패")
+        print("DB 연결 실패")  # 디버깅 로그 추가
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
 @scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
+    print("send_weekly_study_ranking 함수 시작")  # 디버깅 로그 추가
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
             # 'Asia/Seoul' 타임존 기준으로 지난 주 시작 날짜와 종료 날짜 계산
-            last_week_start = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday() + 7)).strftime('%Y-%m-%d')
-            last_week_end = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=datetime.now(pytz.timezone('Asia/Seoul')).weekday() + 1)).strftime('%Y-%m-%d')
+            cursor.execute("""
+                SELECT (CURRENT_DATE - INTERVAL '7 days') AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'
+            """)
+            last_week_start, last_week_end = cursor.fetchone()
+            print(f"지난 주 시작 날짜: {last_week_start}, 지난 주 종료 날짜: {last_week_end}")  # 디버깅 로그 추가
 
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
-                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
+                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
                 WHERE a.log_date BETWEEN %s AND %s
@@ -241,6 +251,7 @@ async def send_weekly_study_ranking():
                 ORDER BY total_study_time DESC
             """, (last_week_start, last_week_end))
             results = cursor.fetchall()
+            print(f"주간 공부 시간 결과: {results}")  # 디버깅 로그 추가
 
             ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
@@ -251,14 +262,15 @@ async def send_weekly_study_ranking():
                 ranking_message += "지난 주에는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
+            print(f"메시지를 보낼 채널: {ch}")  # 디버깅 로그 추가
             await ch.send(ranking_message)
         except Error as e:
-            print(f"'{e}' 에러 발생")
+            print(f"'{e}' 에러 발생")  # 디버깅 로그 추가
         finally:
             cursor.close()
             connection.close()
     else:
-        print("DB 연결 실패")
+        print("DB 연결 실패")  # 디버깅 로그 추가
 
 
 # 스케줄러 시작
