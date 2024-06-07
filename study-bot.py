@@ -351,14 +351,16 @@ def save_all_sessions():
 
 # Graceful Shutdown 핸들러 :: 재시작 감지되면 미리 DB에 저장 후 안전히 종료할 수 있도록 함
 def graceful_shutdown(signum, frame):
-    print("Heroku 재부팅 감지됨. 안전하게 종료 중...")
-    save_all_sessions()
-
-    # 비동기작업 완료 후 시스템 종료하기
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(send_shutdown_messages())
+    print("Heroku 재부팅 감지됨. 안전하게 종료 중...")  # 재부팅 감지 시 메시지 출력
+    save_all_sessions()  # 현재 모든 세션을 저장하는 함수 호출
     
-    sys.exit(0)
+    loop = asyncio.get_event_loop()  # 현재 이벤트 루프를 가져옴
+    if loop.is_running():  # 이벤트 루프가 이미 실행 중인지 확인
+        loop.create_task(send_shutdown_messages())  # 실행 중이면, send_shutdown_messages를 task로 생성
+    else:
+        loop.run_until_complete(send_shutdown_messages())  # 이벤트 루프가 실행 중이 아니면, 동기적으로 실행하여 완료될 때까지 대기
+    
+    sys.exit(0)  # 시스템 종료
 
 # 시그널 등록
 signal.signal(signal.SIGTERM, graceful_shutdown)
