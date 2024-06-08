@@ -173,7 +173,7 @@ async def send_daily_study_ranking():
     await client.wait_until_ready()
     print("send_daily_study_ranking 함수 시작")  # 함수 시작 로그 추가
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
-        print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")  # 월요일 제외 로그 추가
+        print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")
         return  # 월요일은 일일 순위 표시 xxx
 
     connection = create_db_connection()
@@ -181,6 +181,7 @@ async def send_daily_study_ranking():
         print("데이터베이스 연결 성공")  # DB 연결 성공 로그 추가
         cursor = connection.cursor()
         try:
+            print("일일 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
                 SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
@@ -211,7 +212,7 @@ async def send_daily_study_ranking():
             else:
                 print("채널 찾기 실패")  # 채널 찾기 실패 로그 추가
         except Error as e:
-            print(f"쿼리 실행 에러 발생: {e}")  # 쿼리 실행 에러 로그 추가
+            print(f"일일 공부 시간 순위를 계산하는 중 에러 발생: '{e}'")
         finally:
             cursor.close()
             connection.close()
@@ -228,6 +229,7 @@ async def send_weekly_study_ranking():
     if connection:
         cursor = connection.cursor()
         try:
+            print("주간 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
@@ -248,8 +250,9 @@ async def send_weekly_study_ranking():
 
             ch = client.get_channel(1239098139361808429)
             await ch.send(ranking_message)
+            print("주간 공부 시간 순위 메시지를 성공적으로 전송했습니다.")  # 로그 추가
         except Error as e:
-            print(f"'{e}' 에러 발생")
+            print(f"주간 공부 시간 순위를 계산하는 중 에러 발생: '{e}'")
         finally:
             cursor.close()
             connection.close()
@@ -258,7 +261,8 @@ async def send_weekly_study_ranking():
 
 
 # 스케줄러 시작
-scheduler.start()
+if not scheduler.running:
+    scheduler.start()
 
 
 # ---------------------------------------- Heroku 재시작 처리 ----------------------------------------
@@ -1104,7 +1108,8 @@ def log_reaction_count(member_id):
 async def on_ready():
     print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
+    if not scheduler.running:
+        scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
             # check_absences.start()  # 결석체크 함수 예약
             # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
             # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
