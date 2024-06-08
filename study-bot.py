@@ -171,10 +171,14 @@ async def check_absences():
 @scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
+    print("send_daily_study_ranking 함수 시작")  # 함수 시작 로그 추가
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
+        print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")  # 월요일 제외 로그 추가
         return  # 월요일은 일일 순위 표시 xxx
+
     connection = create_db_connection()
     if connection:
+        print("데이터베이스 연결 성공")  # DB 연결 성공 로그 추가
         cursor = connection.cursor()
         try:
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
@@ -191,6 +195,7 @@ async def send_daily_study_ranking():
                 ORDER BY total_study_time DESC
             """)
             results = cursor.fetchall()
+            print(f"쿼리 실행 결과: {results}")  # 쿼리 결과 로그 추가
             ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
@@ -200,14 +205,19 @@ async def send_daily_study_ranking():
                 ranking_message += "어제는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
-            await ch.send(ranking_message)
+            if ch:
+                print("채널 찾기 성공, 메시지 전송 시도 중...")  # 채널 찾기 성공 로그 추가
+                await ch.send(ranking_message)
+            else:
+                print("채널 찾기 실패")  # 채널 찾기 실패 로그 추가
         except Error as e:
-            print(f"'{e}' 에러 발생")
+            print(f"쿼리 실행 에러 발생: {e}")  # 쿼리 실행 에러 로그 추가
         finally:
             cursor.close()
             connection.close()
+            print("데이터베이스 연결 닫기")  # DB 연결 닫기 로그 추가
     else:
-        print("DB 연결 실패")
+        print("DB 연결 실패")  # DB 연결 실패 로그 추가
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
