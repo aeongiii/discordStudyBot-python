@@ -52,7 +52,7 @@ def create_db_connection():
 # ---------------------------------------- 이틀이 지난 공부 세션 정보는 DB에서 삭제 ----------------------------------------
 
 # 이틀이 지난 데이터를 삭제하는 함수 (이틀이 지나면 그 다음 0시에 삭제됨)
-def delete_old_sessions():
+# def delete_old_sessions():
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
@@ -79,7 +79,7 @@ def delete_old_sessions():
 
 # 스케줄러 설정 :: 실제 한국 시간에 따라 일간/주간 공부순위 안내하는 함수 예약 시 사용
 scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-scheduler.add_job(delete_old_sessions, 'cron', hour=0, minute=0)
+# scheduler.add_job(delete_old_sessions, 'cron', hour=0, minute=0)
 
 
 # 자정에 end_study_session_at_midnight 함수 예약
@@ -90,41 +90,36 @@ async def schedule_midnight_tasks():
 
 
 # 매일 0시에 결석 체크 + 익일에 탈퇴 처리
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+@scheduler.scheduled_job('cron', hour=0, minute=0)
 async def check_absences():
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
-            # 'Asia/Seoul' 타임존 기준으로 현재 날짜와 어제 날짜 계산
-            cursor.execute("SELECT CURRENT_DATE AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
-            current_date, yesterday = cursor.fetchone()
-            
             # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
             cursor.execute("""
-                SELECT m.member_id, m.member_nickname, mp.period_id
+                SELECT m.member_id, m.member_nickname
                 FROM member m
-                JOIN membership_period mp ON m.member_id = mp.member_id AND mp.period_now_active = TRUE
-                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = %s
-                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
-                WHERE v.member_id IS NULL AND (a.log_study_time IS NULL OR a.log_study_time = 0)
-            """, (current_date, current_date))
+                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE
+                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURRENT_DATE
+                WHERE v.member_id IS NULL AND s.member_id IS NULL
+            """)
             results = cursor.fetchall()
 
             if results:
                 for result in results:
                     member_id = result[0]
                     member_nickname = result[1]
-                    period_id = result[2]
 
                     # 결석한 멤버의 activity_log에 새로운 열 추가
+                    log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
                     cursor.execute("""
                         INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
                         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (member_id, period_id, log_date) DO UPDATE SET log_attendance = EXCLUDED.log_attendance;
-                    """, (member_id, period_id, current_date, 0, 0, 0, False, 0, None, None, None))
+                        ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
+                    """, (member_id, 1, log_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
 
-                    await process_absence(member_id, period_id, member_nickname)
+                    await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정 🌟🌟수정필요🌟🌟
 
             # 결석 3회 이상인 멤버 검색
             cursor.execute("""
@@ -132,8 +127,8 @@ async def check_absences():
                 FROM churn_prediction cp
                 JOIN member m ON cp.member_id = m.member_id
                 WHERE cp.prediction_absence_count >= 3 
-                AND cp.prediction_date <= %s
-            """, (yesterday,))
+                AND cp.prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
+            """)
             results = cursor.fetchall()
 
             if results:
@@ -176,35 +171,26 @@ async def check_absences():
 @scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
-    print("send_daily_study_ranking 함수 시작")  # 디버깅 로그 추가
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
-        print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")  # 디버깅 로그 추가
         return  # 월요일은 일일 순위 표시 xxx
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
-            # 'Asia/Seoul' 타임존 기준으로 어제 날짜 계산
-            cursor.execute("SELECT (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
-            yesterday = cursor.fetchone()[0]
-            print(f"어제 날짜: {yesterday}")  # 디버깅 로그 추가
-
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
                 SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
                 FROM member m
-                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
                 WHERE m.member_id IN (
-                    SELECT member_id FROM activity_log WHERE log_date = %s
+                    SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
                 ) OR m.member_id IN (
-                    SELECT member_id FROM vacation_log WHERE vacation_date = %s
+                    SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
                 )
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
-            """, (yesterday, yesterday, yesterday))
+            """)
             results = cursor.fetchall()
-            print(f"공부 시간 결과: {results}")  # 디버깅 로그 추가
-
             ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
@@ -214,45 +200,34 @@ async def send_daily_study_ranking():
                 ranking_message += "어제는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
-            print(f"메시지를 보낼 채널: {ch}")  # 디버깅 로그 추가
             await ch.send(ranking_message)
         except Error as e:
-            print(f"'{e}' 에러 발생")  # 디버깅 로그 추가
+            print(f"'{e}' 에러 발생")
         finally:
             cursor.close()
             connection.close()
     else:
-        print("DB 연결 실패")  # 디버깅 로그 추가
+        print("DB 연결 실패")
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
 @scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
-    print("send_weekly_study_ranking 함수 시작")  # 디버깅 로그 추가
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
-            # 'Asia/Seoul' 타임존 기준으로 지난 주 시작 날짜와 종료 날짜 계산
-            cursor.execute("""
-                SELECT (CURRENT_DATE - INTERVAL '7 days') AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'
-            """)
-            last_week_start, last_week_end = cursor.fetchone()
-            print(f"지난 주 시작 날짜: {last_week_start}, 지난 주 종료 날짜: {last_week_end}")  # 디버깅 로그 추가
-
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
                 FROM activity_log a
                 JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date BETWEEN %s AND %s
+                WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
                 GROUP BY m.member_nickname, a.member_id
                 ORDER BY total_study_time DESC
-            """, (last_week_start, last_week_end))
+            """)
             results = cursor.fetchall()
-            print(f"주간 공부 시간 결과: {results}")  # 디버깅 로그 추가
-
             ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
@@ -262,15 +237,14 @@ async def send_weekly_study_ranking():
                 ranking_message += "지난 주에는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
-            print(f"메시지를 보낼 채널: {ch}")  # 디버깅 로그 추가
             await ch.send(ranking_message)
         except Error as e:
-            print(f"'{e}' 에러 발생")  # 디버깅 로그 추가
+            print(f"'{e}' 에러 발생")
         finally:
             cursor.close()
             connection.close()
     else:
-        print("DB 연결 실패")  # 디버깅 로그 추가
+        print("DB 연결 실패")
 
 
 # 스케줄러 시작
@@ -361,18 +335,11 @@ def save_all_sessions():
         print("DB 연결 실패")
 
 
-# Graceful Shutdown 핸들러 :: 재시작 감지되면 미리 DB에 저장 후 안전히 종료할 수 있도록 함
+# 재시작 감지되면 미리 DB에 저장 후 안전히 종료할 수 있도록 함
 def graceful_shutdown(signum, frame):
-    print("Heroku 재부팅 감지됨. 안전하게 종료 중...")  # 재부팅 감지 시 메시지 출력
-    save_all_sessions()  # 현재 모든 세션을 저장하는 함수 호출
-    
-    loop = asyncio.get_event_loop()  # 현재 이벤트 루프를 가져옴
-    if loop.is_running():  # 이벤트 루프가 이미 실행 중인지 확인
-        loop.create_task(send_shutdown_messages())  # 실행 중이면, send_shutdown_messages를 task로 생성
-    else:
-        loop.run_until_complete(send_shutdown_messages())  # 이벤트 루프가 실행 중이 아니면, 동기적으로 실행하여 완료될 때까지 대기
-    
-    sys.exit(0)  # 시스템 종료
+    print("Heroku 재부팅 감지됨. 안전하게 종료 중...")
+    save_all_sessions()
+    sys.exit(0)
 
 # 시그널 등록
 signal.signal(signal.SIGTERM, graceful_shutdown)
@@ -928,10 +895,6 @@ async def send_study_time_info(user, member_id, period_id):
     if connection:
         cursor = connection.cursor()
         try:
-            # 'Asia/Seoul' 타임존 기준으로 오늘 날짜와 이번 주 시작 날짜 계산
-            cursor.execute("SELECT CURRENT_DATE AT TIME ZONE 'Asia/Seoul', (CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE) * INTERVAL '1 day') AT TIME ZONE 'Asia/Seoul'")
-            current_date, week_start_date = cursor.fetchone()
-            
             # 오늘 공부시간
             cursor.execute(
                 """
@@ -939,9 +902,9 @@ async def send_study_time_info(user, member_id, period_id):
                 FROM activity_log 
                 WHERE member_id = %s 
                 AND period_id = %s 
-                AND log_date = %s
+                AND log_date = CURRENT_DATE
                 """,
-                (member_id, period_id, current_date)
+                (member_id, period_id)
             )
             today_study_time = cursor.fetchone()[0]
 
@@ -952,10 +915,10 @@ async def send_study_time_info(user, member_id, period_id):
                 FROM activity_log
                 WHERE member_id = %s 
                 AND period_id = %s
-                AND log_date >= %s
-                AND log_date <= %s
+                AND log_date >= CURRENT_DATE - EXTRACT(DOW FROM CURRENT_DATE) * INTERVAL '1 day'
+                AND log_date <= CURRENT_DATE
                 """,
-                (member_id, period_id, week_start_date, current_date)
+                (member_id, period_id)
             )
             week_study_time = cursor.fetchone()[0]
 
@@ -1131,8 +1094,12 @@ def log_reaction_count(member_id):
 async def on_ready():
     print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    if not scheduler.running: # 스케줄러 위에서 실행시켰지만.. 혹시나 실행중이 아닐 경우
-        scheduler.start() 
+    scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
+            # check_absences.start()  # 결석체크 함수 예약
+            # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
+            # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
+            # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
+            # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
 
