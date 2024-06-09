@@ -224,7 +224,6 @@ async def check_absences():
 # ------------------------- 테스트용 일일순위 함수 (1분후 순위안내) -----------------------------
 
 # 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
-@scheduler.scheduled_job('date', run_date=datetime.now() + timedelta(minutes=1))
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     print("일일 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
