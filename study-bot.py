@@ -168,14 +168,66 @@ async def check_absences():
 
 
 # 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+# # @scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+# async def send_daily_study_ranking():
+#     await client.wait_until_ready()
+#     print("send_daily_study_ranking 함수 시작")  # 함수 시작 로그 추가
+#     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
+#         print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")
+#         return  # 월요일은 일일 순위 표시 xxx
+
+#     connection = create_db_connection()
+#     if connection:
+#         print("데이터베이스 연결 성공")  # DB 연결 성공 로그 추가
+#         cursor = connection.cursor()
+#         try:
+#             print("일일 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
+#             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
+#             cursor.execute("""
+#                 SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
+#                 FROM member m
+#                 LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
+#                 WHERE m.member_id IN (
+#                     SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
+#                 ) OR m.member_id IN (
+#                     SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
+#                 )
+#                 GROUP BY m.member_nickname
+#                 ORDER BY total_study_time DESC
+#             """)
+#             results = cursor.fetchall()
+#             print(f"쿼리 실행 결과: {results}")  # 쿼리 결과 로그 추가
+#             ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
+#             for i, (nickname, total_study_time) in enumerate(results, start=1):
+#                 hours, minutes = divmod(total_study_time, 60)
+#                 ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
+
+#             if not results:
+#                 ranking_message += "어제는 공부한 멤버가 없습니다.\n"
+
+#             ch = client.get_channel(1239098139361808429)
+#             if ch:
+#                 print("채널 찾기 성공, 메시지 전송 시도 중...")  # 채널 찾기 성공 로그 추가
+#                 await ch.send(ranking_message)
+#             else:
+#                 print("채널 찾기 실패")  # 채널 찾기 실패 로그 추가
+#         except Error as e:
+#             print(f"일일 공부 시간 순위를 계산하는 중 에러 발생: '{e}'")
+#         finally:
+#             cursor.close()
+#             connection.close()
+#             print("데이터베이스 연결 닫기")  # DB 연결 닫기 로그 추가
+#     else:
+#         print("DB 연결 실패")  # DB 연결 실패 로그 추가
+
+
+# ------------------------- 테스트용 일일순위 함수 (1분후 순위안내) -----------------------------
+
+# 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
+@scheduler.scheduled_job('date', run_date=datetime.now() + timedelta(minutes=1))
 async def send_daily_study_ranking():
     await client.wait_until_ready()
-    print("send_daily_study_ranking 함수 시작")  # 함수 시작 로그 추가
-    if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
-        print("오늘은 월요일이므로 일일 순위를 표시하지 않습니다.")
-        return  # 월요일은 일일 순위 표시 xxx
-
+    print("일일 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
     connection = create_db_connection()
     if connection:
         print("데이터베이스 연결 성공")  # DB 연결 성공 로그 추가
@@ -206,11 +258,8 @@ async def send_daily_study_ranking():
                 ranking_message += "어제는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
-            if ch:
-                print("채널 찾기 성공, 메시지 전송 시도 중...")  # 채널 찾기 성공 로그 추가
-                await ch.send(ranking_message)
-            else:
-                print("채널 찾기 실패")  # 채널 찾기 실패 로그 추가
+            await ch.send(ranking_message)
+            print("일일 공부 시간 순위 메시지를 성공적으로 전송했습니다.")  # 로그 추가
         except Error as e:
             print(f"일일 공부 시간 순위를 계산하는 중 에러 발생: '{e}'")
         finally:
@@ -1115,6 +1164,10 @@ async def on_ready():
             # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
             # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
             # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
+
+    # 테스트용)) 1분 후 일일순위 알림
+    scheduler.add_job(send_daily_study_ranking, 'date', run_date=datetime.now() + timedelta(minutes=1))
+
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
 
