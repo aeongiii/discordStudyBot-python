@@ -224,27 +224,24 @@ async def check_absences():
 # ------------------------- 테스트용 일일순위 함수 (1분후 순위안내) -----------------------------
 
 # 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
+@tasks.loop(hours=24)
 async def send_daily_study_ranking():
     await client.wait_until_ready()
-    print("일일 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
+    if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
+        return  # 월요일은 일일 순위 표시 xxx
     connection = create_db_connection()
     if connection:
-        print("데이터베이스 연결 성공")  # DB 연결 성공 로그 추가
         cursor = connection.cursor()
         try:
-            print("일일 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
-            # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
+            # 어제 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
-                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
-                FROM member m
-                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
-                WHERE m.member_id IN (
-                    SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
-                ) OR m.member_id IN (
-                    SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
-                )
+                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
+                FROM activity_log a
+                JOIN member m ON a.member_id = m.member_id
+                WHERE a.log_date = CURRENT_DATE - INTERVAL '1 day'
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
+                LIMIT 10
             """)
             results = cursor.fetchall()
             print(f"쿼리 실행 결과: {results}")  # 쿼리 결과 로그 추가
@@ -270,14 +267,14 @@ async def send_daily_study_ranking():
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
+# @scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
+@tasks.loop(hours=168)  # 168 hours = 1 week 이니까.
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
-            print("주간 공부 시간 순위 계산을 시작합니다.")  # 로그 추가
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
@@ -286,6 +283,7 @@ async def send_weekly_study_ranking():
                 WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
                 GROUP BY m.member_nickname, a.member_id
                 ORDER BY total_study_time DESC
+                LIMIT 10
             """)
             results = cursor.fetchall()
             ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
@@ -1163,6 +1161,7 @@ async def on_ready():
             # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
             # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
             # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
+        send_daily_study_ranking.start()
 
     # 테스트용)) 1분 후 일일순위 알림
     scheduler.add_job(send_daily_study_ranking, 'date', run_date=datetime.now() + timedelta(minutes=1))
