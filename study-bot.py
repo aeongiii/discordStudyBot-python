@@ -164,7 +164,7 @@ async def check_absences():
 
 
 # 일일 공부 시간 순위 표시 함수
-@scheduler.scheduled_job('date', run_date=datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1))
+# @scheduler.scheduled_job('date', run_date=datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1))  -- on_ready()함수에 있음
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     print("send_daily_study_ranking 함수 시작")
