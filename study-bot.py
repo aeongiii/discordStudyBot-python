@@ -1147,25 +1147,24 @@ def log_reaction_count(member_id):
 # ================================================ 서버 이벤트 ================================================
 
 
-
 # 봇이 실행중일 때 상태메시지
 @client.event
 async def on_ready():
     print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    # if not scheduler.running:
-    scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
-            # check_absences.start()  # 결석체크 함수 예약
-            # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
-            # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
-            # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
-            # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
-    # send_daily_study_ranking.start()
+    scheduler.start()  # 스케줄러 시작
 
-    # 테스트용)) 1분 후 일일순위 알림
-    # scheduler.add_job(send_daily_study_ranking, 'date', run_date=datetime.now() + timedelta(minutes=1))
+    # 기존에 스케줄된 작업
+    # check_absences.start()  # 결석체크 함수 예약
+    # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
+    # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
+    # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
+    # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
+
+    # 테스트용)) 1분 후 일일순위 알림
+    scheduler.add_job(send_daily_study_ranking, 'date', run_date=datetime.now() + timedelta(minutes=1))
 
 
 # 멤버 새로 참여 시 [member]와 [membership_period]테이블에 정보 추가 및 공지 출력
