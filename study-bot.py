@@ -163,14 +163,11 @@ async def check_absences():
         print("DB 연결 실패")
 
 
-# 일일 공부 시간 순위 표시 함수
-# @scheduler.scheduled_job('date', run_date=datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1))  -- on_ready()함수에 있음
+# 일일 공부 시간 순위 표시 함수 :: 매일 자정에 일일 순위 보여줌
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     print("send_daily_study_ranking 함수 시작")
-    if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
-        return  # 월요일은 일일 순위 표시 xxx
-
     connection = create_db_connection()
     if connection:
         print("데이터베이스 연결 성공")
@@ -216,14 +213,17 @@ async def send_daily_study_ranking():
         print("DB 연결 실패")
 
 
-# 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
+# 주간 공부 시간 순위 표시 함수 :: 월요일 자정에 주간 순위 보여줌
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')  # 테스트를 위해 매일 자정으로 임시 변경
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
+    print("send_weekly_study_ranking 함수 시작")
     connection = create_db_connection()
     if connection:
+        print("데이터베이스 연결 성공")
         cursor = connection.cursor()
         try:
+            print("주간 공부 시간 순위 계산을 시작합니다.")
             # 지난 주에 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
                 SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
@@ -243,15 +243,17 @@ async def send_weekly_study_ranking():
                 ranking_message += "지난 주에는 공부한 멤버가 없습니다.\n"
 
             ch = client.get_channel(1239098139361808429)
-            await ch.send(ranking_message)
-            print("주간 공부 시간 순위 메시지를 성공적으로 전송했습니다.")  # 로그 추가
+            if ch:
+                print("채널 찾기 성공")
+                await ch.send(ranking_message) # 순위 안내 메시지 보냄
+            else:
+                print("채널 찾기 실패")
         except Error as e:
             print(f"주간 공부 시간 순위를 계산하는 중 에러 발생: '{e}'")
         finally:
             cursor.close()
             connection.close()
-    else:
-        print("DB 연결 실패")
+            print("데이터베이스 연결 닫기")
 
 
 # 스케줄러 시작
@@ -1108,9 +1110,9 @@ async def on_ready():
         scheduler.start()
 
     # 테스트용 스케줄러 추가
-    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)
-    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
-    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 1분 후 테스트
+#    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)
+#    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
+#    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 1분 후 테스트
 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
