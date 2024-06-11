@@ -110,16 +110,12 @@ async def check_absences():
                 for result in results:
                     member_id = result[0]
                     member_nickname = result[1]
-
-                    # 결석한 멤버의 activity_log에 새로운 열 추가
-                    log_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
-                    cursor.execute("""
-                        INSERT INTO activity_log (member_id, period_id, log_date, log_message_count, log_study_time, log_login_count, log_attendance, log_reaction_count, log_active_period, log_day_study_time, log_night_study_time)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (member_id, period_id, log_date) DO NOTHING;
-                    """, (member_id, 1, log_date, 0, 0, 0, False, 0, None, None, None))  # period_id 값을 1로 가정
-
-                    await process_absence(member_id, 1, member_nickname)  # period_id 값을 1로 가정 🌟🌟수정필요🌟🌟
+                    # period_id 조회
+                    cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
+                    period_result = cursor.fetchone()
+                    if period_result:
+                        period_id = period_result[0]
+                        await process_absence(member_id, period_id, member_nickname)
 
             # 결석 3회 이상인 멤버 검색
             cursor.execute("""
@@ -224,7 +220,7 @@ async def check_absences():
 # ------------------------- 테스트용 일일순위 함수 (1분후 순위안내) -----------------------------
 
 # 일일 공부 시간 순위 표시 함수 :: 월요일 제외하고 모든 날 일일 순위 보여줌!
-@tasks.loop(hours=24)
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     if datetime.now(pytz.timezone('Asia/Seoul')).strftime('%A') == 'Monday':
@@ -235,13 +231,16 @@ async def send_daily_study_ranking():
         try:
             # 어제 공부한 멤버들의 공부시간 가져오기
             cursor.execute("""
-                SELECT m.member_nickname, SUM(a.log_study_time) AS total_study_time
-                FROM activity_log a
-                JOIN member m ON a.member_id = m.member_id
-                WHERE a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
+                FROM member m
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                WHERE m.member_id IN (
+                    SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
+                ) OR m.member_id IN (
+                    SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
+                )
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
-                LIMIT 10
             """)
             results = cursor.fetchall()
             print(f"쿼리 실행 결과: {results}")  # 쿼리 결과 로그 추가
@@ -267,8 +266,7 @@ async def send_daily_study_ranking():
 
 
 # 주간 공부 시간 순위 표시 함수 :: 월요일에만 주간순위 보여줌!
-# @scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
-@tasks.loop(hours=168)  # 168 hours = 1 week 이니까.
+@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     connection = create_db_connection()
@@ -283,7 +281,6 @@ async def send_weekly_study_ranking():
                 WHERE a.log_date BETWEEN (CURRENT_DATE - INTERVAL '7 days') AND (CURRENT_DATE - INTERVAL '1 day')
                 GROUP BY m.member_nickname, a.member_id
                 ORDER BY total_study_time DESC
-                LIMIT 10
             """)
             results = cursor.fetchall()
             ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
@@ -1156,17 +1153,17 @@ def log_reaction_count(member_id):
 async def on_ready():
     print("봇 실행을 시작합니다.")
     await client.change_presence(status=discord.Status.online, activity=discord.Game("공부 안하고 딴짓"))
-    if not scheduler.running:
-        scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
+    # if not scheduler.running:
+    scheduler.start()  # 스케줄러 시작 (아래 주석친 개별 작업을 scheduler가 한번에 실행시킴)
             # check_absences.start()  # 결석체크 함수 예약
             # send_daily_study_ranking.start()   # 일일순위 체크 함수 예약
             # send_weekly_study_ranking.change_interval(time=time(hour=0, minute=1))
             # send_weekly_study_ranking.start()   # 주간순위 체크 함수 예약
             # schedule_midnight_tasks.start()  # 자정 작업 스케줄러 시작
-        send_daily_study_ranking.start()
+    # send_daily_study_ranking.start()
 
     # 테스트용)) 1분 후 일일순위 알림
-    scheduler.add_job(send_daily_study_ranking, 'date', run_date=datetime.now() + timedelta(minutes=1))
+    # scheduler.add_job(send_daily_study_ranking, 'date', run_date=datetime.now() + timedelta(minutes=1))
 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
