@@ -588,8 +588,8 @@ def handle_member_leave(member):
                 member_id = result[0]
                 # 현재 활성화된 기간을 비활성화하고 종료 날짜 업데이트
                 cursor.execute(
-                    "UPDATE membership_period SET period_now_active = 0, period_end_date = %s WHERE member_id = %s AND period_now_active = TRUE",
-                    (leave_date, member_id)
+                    "UPDATE membership_period SET period_now_active = %s, period_end_date = %s WHERE member_id = %s AND period_now_active = %s",
+                    (False, leave_date, member_id, True)
                 )
                 connection.commit()
                 print(f"[{member.display_name}]님의 탈퇴가 처리되었습니다. 탈퇴 날짜: {leave_date}")
