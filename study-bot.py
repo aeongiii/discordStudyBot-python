@@ -1082,16 +1082,18 @@ def log_login_count(member_id):
         try:
             # 이미 해당 멤버와 날짜에 대한 로그가 존재하는지 확인
             cursor.execute(
-                "SELECT log_id FROM activity_log WHERE member_id = %s AND log_date = %s",
+                "SELECT log_id, log_login_count FROM activity_log WHERE member_id = %s AND log_date = %s",
                 (member_id, log_date)
             )
             log_id = cursor.fetchone()
             if log_id:
                 # 이미 존재하는 로그가 있으면 로그인 수 업데이트
-                cursor.execute(
-                    "UPDATE activity_log SET log_login_count = log_login_count + 1 WHERE log_id = %s",
-                    (log_id[0],)
-                )
+                current_count = log_id[1]
+                if current_count < 2147483647:  # Check if the current count is within the integer range
+                    cursor.execute(
+                        "UPDATE activity_log SET log_login_count = log_login_count + 1 WHERE log_id = %s",
+                        (log_id[0],)
+                    )
             else:
                 # 존재하지 않으면 새로운 로그 생성
                 cursor.execute(
