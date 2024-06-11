@@ -1109,7 +1109,8 @@ async def on_ready():
 
     # 테스트용 스케줄러 추가
     run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)
-    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date)
+    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
+    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 1분 후 테스트
 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
