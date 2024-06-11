@@ -164,7 +164,7 @@ async def check_absences():
 
 
 # 일일 공부 시간 순위 표시 함수 :: 매일 자정에 일일 순위 보여줌
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
+@scheduler.scheduled_job('cron', hour=0, minute=0, day_of_week='tue-sun', timezone='Asia/Seoul')
 async def send_daily_study_ranking():
     await client.wait_until_ready()
     print("send_daily_study_ranking 함수 시작")
@@ -213,8 +213,8 @@ async def send_daily_study_ranking():
         print("DB 연결 실패")
 
 
-# 주간 공부 시간 순위 표시 함수 :: 월요일 자정에 주간 순위 보여줌
-@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')  # 테스트를 위해 매일 자정으로 임시 변경
+# 주간 공부 시간 순위 표시 함수 :: 월요일 자정에만 주간 순위 보여줌
+@scheduler.scheduled_job('cron', day_of_week='mon', hour=0, minute=0, timezone='Asia/Seoul')
 async def send_weekly_study_ranking():
     await client.wait_until_ready()
     print("send_weekly_study_ranking 함수 시작")
@@ -254,6 +254,8 @@ async def send_weekly_study_ranking():
             cursor.close()
             connection.close()
             print("데이터베이스 연결 닫기")
+    else:
+        print("DB 연결 실패")
 
 
 # 스케줄러 시작
