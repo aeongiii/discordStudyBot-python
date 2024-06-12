@@ -173,20 +173,22 @@ async def send_daily_study_ranking():
         print("데이터베이스 연결 성공")
         cursor = connection.cursor()
         try:
+            yesterday = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=1)).strftime('%Y-%m-%d')
+            print(f"기준 날짜: {yesterday}")
             print("일일 공부 시간 순위 계산을 시작합니다.")
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
             cursor.execute("""
                 SELECT m.member_nickname, COALESCE(SUM(a.log_study_time), 0) AS total_study_time
                 FROM member m
-                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = %s
                 WHERE m.member_id IN (
-                    SELECT member_id FROM activity_log WHERE log_date = CURRENT_DATE - INTERVAL '1 day'
+                    SELECT member_id FROM activity_log WHERE log_date = %s
                 ) OR m.member_id IN (
-                    SELECT member_id FROM vacation_log WHERE vacation_date = CURRENT_DATE - INTERVAL '1 day'
+                    SELECT member_id FROM vacation_log WHERE vacation_date = %s
                 )
                 GROUP BY m.member_nickname
                 ORDER BY total_study_time DESC
-            """)
+            """, (yesterday, yesterday, yesterday))
             results = cursor.fetchall()
             print(f"쿼리 실행 결과: {results}")
             ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
@@ -1112,8 +1114,8 @@ async def on_ready():
         scheduler.start()
 
     # 테스트용 스케줄러 추가
-#    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)
-#    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
+    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)
+    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
 #    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 1분 후 테스트
 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
