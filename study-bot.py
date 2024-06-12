@@ -863,6 +863,19 @@ async def process_absence(member_id, period_id, member_display_name):
             guild = client.get_guild(1238886734725648496)  # 서버 ID로 서버 객체 가져오기
             if guild:
                 user = guild.get_member(member_id)
+                if not user:
+                    print(f"멤버를 찾을 수 없습니다: {member_display_name}. (member_id: {member_id})")
+                    print(f"이유: 멤버가 길드에 없습니다.")
+                    # 캐시에서 멤버를 찾지 못한 경우 API를 통해 다시 가져오기
+                    try:
+                        user = await client.fetch_user(member_id)
+                        if user:
+                            print(f"API를 통해 멤버 찾기 성공: {user.name}")
+                    except discord.NotFound:
+                        print(f"API를 통해서도 멤버를 찾을 수 없습니다: {member_display_name}")
+                    except discord.HTTPException as e:
+                        print(f"API 요청 중 에러 발생: {e}")
+
                 if user:
                     try:
                         print(f"DM 전송 시도: {member_display_name} ({user.name})")
@@ -873,12 +886,7 @@ async def process_absence(member_id, period_id, member_display_name):
                     except Exception as e:
                         print(f"DM 전송 중 에러 발생: {e}")
                 else:
-                    print(f"멤버를 찾을 수 없습니다: {member_display_name}. (member_id: {member_id})")
-                    # 멤버를 찾을 수 없는 이유 확인
-                    if member_id not in [m.id for m in guild.members]:
-                        print(f"이유: 멤버가 길드에 없습니다.")
-                    else:
-                        print(f"이유: 멤버가 봇의 캐시에 로드되지 않았습니다.")
+                    print(f"결국 멤버를 찾을 수 없습니다: {member_display_name}. (member_id: {member_id})")
             else:
                 print(f"서버(1238886734725648496)를 찾을 수 없습니다.")
 
