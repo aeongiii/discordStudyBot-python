@@ -135,16 +135,16 @@ async def check_absences():
             if results:
                 for result in results:
                     member_id = result[0]
-                    guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
+                    guild = client.get_guild(1238886734725648496)
                     if guild:
-                        member = discord.utils.get(guild.members, id=member_id)
+                        member = guild.get_member(member_id)
                         if member:
                             await guild.kick(member, reason="스터디 조건 미달")
                             print(f"멤버 [{member.display_name}] 탈퇴 처리 완료")
                         else:
                             print(f"멤버 ID {member_id}를 서버에서 찾을 수 없습니다.")
                     else:
-                        print(f"Guild with ID {1238886734725648496} not found")
+                        print(f"서버(1238886734725648496)를 찾을 수 없습니다.")
 
         except Error as e:
             print(f"'{e}' 에러 발생")
@@ -859,8 +859,8 @@ async def process_absence(member_id, period_id, member_display_name):
             connection.commit()
             print(f"{member_display_name}님의 결석이 기록되었습니다. 결석 일수: {absence_count}")
 
-            # 1회, 2회 결석한 경우 - 결석 기록 안내 다이렉트 메시지 전송
-            guild = client.get_guild(1238886734725648496)  # 서버 ID로 서버 객체 가져오기
+            # 멤버 객체 가져오기
+            guild = client.get_guild(1238886734725648496)
             if guild:
                 user = guild.get_member(member_id)
                 if not user:
@@ -1133,6 +1133,11 @@ async def on_ready():
     
     if not scheduler.running:
         scheduler.start()
+
+    # 모든 멤버를 캐시
+    guild = client.get_guild(1238886734725648496)
+    if guild:
+        await guild.chunk()
 
 #    테스트용 스케줄러 추가
     run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=3)  # 테스트 실행 시간 지정 :: 1분 후
