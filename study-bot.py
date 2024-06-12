@@ -1135,7 +1135,7 @@ async def on_ready():
         scheduler.start()
 
 #    테스트용 스케줄러 추가
-    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)  # 테스트 실행 시간 지정 :: 1분 후
+    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=3)  # 테스트 실행 시간 지정 :: 1분 후
 #    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 테스트
 #    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 테스트
     scheduler.add_job(check_absences, 'date', run_date=run_date)  # 결석 처리 테스트
