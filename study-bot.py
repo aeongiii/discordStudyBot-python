@@ -863,12 +863,15 @@ async def process_absence(member_id, period_id, member_display_name):
             user = discord.utils.get(client.get_all_members(), id=member_id)
             if user:
                 try:
+                    print(f"DM 전송 시도: {member_display_name} ({user.name})")
                     await user.send(f"{member_display_name}님, 결석이 기록되었습니다. 현재 {absence_count}회 결석하셨습니다.")
                     print(f"{member_display_name}님에게 결석 기록 메시지가 전송되었습니다.")
                 except discord.Forbidden:
                     print(f"DM을 보낼 수 없습니다: {member_display_name}")
                 except Exception as e:
                     print(f"DM 전송 중 에러 발생: {e}")
+            else:
+                print(f"멤버를 찾을 수 없습니다: {member_display_name}")
 
             # 3회 결석한 경우 - 탈퇴 예정 안내 다이렉트 메시지 전송
             if absence_count >= 3:
