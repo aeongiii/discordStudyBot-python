@@ -860,18 +860,22 @@ async def process_absence(member_id, period_id, member_display_name):
             if user:
                 try:
                     await user.send(f"{member_display_name}님, 결석이 기록되었습니다. 현재 {absence_count}회 결석하셨습니다.")
-                    print(f"{member_display_name}님에게 결석 알림 전송 완료")
+                    print(f"{member_display_name}님에게 결석 기록 메시지가 전송되었습니다.")
                 except discord.Forbidden:
                     print(f"DM을 보낼 수 없습니다: {member_display_name}")
+                except Exception as e:
+                    print(f"DM 전송 중 에러 발생: {e}")
 
             # 3회 결석한 경우 - 탈퇴 예정 안내 다이렉트 메시지 전송
             if absence_count >= 3:
                 if user:
                     try:
                         await user.send(f"{member_display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
-                        print(f"{member_display_name}님에게 탈퇴 예정 알림 전송 완료")
+                        print(f"{member_display_name}님에게 탈퇴 예정 메시지가 전송되었습니다.")
                     except discord.Forbidden:
                         print(f"DM을 보낼 수 없습니다: {member_display_name}")
+                    except Exception as e:
+                        print(f"탈퇴 예정 메시지 전송 중 에러 발생: {e}")
 
         except Error as e:
             print(f"'{e}' 에러 발생")
@@ -1106,7 +1110,7 @@ async def on_ready():
     if not scheduler.running:
         scheduler.start()
 
-    # 테스트용 스케줄러 추가
+#    테스트용 스케줄러 추가
 #    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)  # 일일 및 주간 순위 테스트 시 활성화
 #    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
 #    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 1분 후 테스트
