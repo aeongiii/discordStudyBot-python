@@ -102,9 +102,10 @@ async def check_absences():
             cursor.execute("""
                 SELECT m.member_id, m.member_nickname
                 FROM member m
+                JOIN membership_period mp ON m.member_id = mp.member_id
                 LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE - INTERVAL '1 day'
                 LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
-                WHERE v.member_id IS NULL AND a.member_id IS NULL
+                WHERE v.member_id IS NULL AND a.member_id IS NULL AND mp.period_now_active = TRUE
             """)
             results = cursor.fetchall()
             print(f"결석 멤버 수: {len(results)}")
@@ -116,8 +117,11 @@ async def check_absences():
                     print(f"결석 멤버: {member_nickname} (ID: {member_id})")
                     # period_id 조회
                     cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
-                    period_id = cursor.fetchone()[0]
-                    await process_absence(member_id, period_id, member_nickname)  # period_id 가져와서 사용
+                    period_id_result = cursor.fetchone()
+                    if period_id_result:
+                        period_id = period_id_result[0]
+                        print(f"결석 멤버: {member_nickname} (ID: {member_id})")
+                        await process_absence(member_id, period_id, member_nickname)
 
             # 결석 3회 이상인 멤버 검색
             cursor.execute("""
