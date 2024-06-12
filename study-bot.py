@@ -860,19 +860,27 @@ async def process_absence(member_id, period_id, member_display_name):
             print(f"{member_display_name}님의 결석이 기록되었습니다. 결석 일수: {absence_count}")
 
             # 1회, 2회 결석한 경우 - 결석 기록 안내 다이렉트 메시지 전송
-            print(f"Discord에서 멤버 검색 시도: ID {member_id}")
-            user = await client.fetch_user(member_id)
-            if user:
-                try:
-                    print(f"DM 전송 시도: {member_display_name} ({user.name})")
-                    await user.send(f"{member_display_name}님, 결석이 기록되었습니다. 현재 {absence_count}회 결석하셨습니다.")
-                    print(f"{member_display_name}님에게 결석 기록 메시지가 전송되었습니다.")
-                except discord.Forbidden:
-                    print(f"DM을 보낼 수 없습니다: {member_display_name}")
-                except Exception as e:
-                    print(f"DM 전송 중 에러 발생: {e}")
+            guild = client.get_guild(1238886734725648496)  # 서버 ID로 서버 객체 가져오기
+            if guild:
+                user = guild.get_member(member_id)
+                if user:
+                    try:
+                        print(f"DM 전송 시도: {member_display_name} ({user.name})")
+                        await user.send(f"{member_display_name}님, 결석이 기록되었습니다. 현재 {absence_count}회 결석하셨습니다.")
+                        print(f"{member_display_name}님에게 결석 기록 메시지가 전송되었습니다.")
+                    except discord.Forbidden:
+                        print(f"DM을 보낼 수 없습니다: {member_display_name}")
+                    except Exception as e:
+                        print(f"DM 전송 중 에러 발생: {e}")
+                else:
+                    print(f"멤버를 찾을 수 없습니다: {member_display_name}. (member_id: {member_id})")
+                    # 멤버를 찾을 수 없는 이유 확인
+                    if member_id not in [m.id for m in guild.members]:
+                        print(f"이유: 멤버가 길드에 없습니다.")
+                    else:
+                        print(f"이유: 멤버가 봇의 캐시에 로드되지 않았습니다.")
             else:
-                print(f"멤버를 찾을 수 없습니다: {member_display_name}")
+                print(f"서버(1238886734725648496)를 찾을 수 없습니다.")
 
             # 3회 결석한 경우 - 탈퇴 예정 안내 다이렉트 메시지 전송
             if absence_count >= 3:
