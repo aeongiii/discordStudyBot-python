@@ -49,22 +49,22 @@ def create_db_connection():
         return None
     
 
-# ---------------------------------------- 이틀이 지난 공부 세션 정보는 DB에서 삭제 ----------------------------------------
+# ---------------------------------------- 3일이 지난 공부 세션 정보는 DB에서 삭제 ----------------------------------------
 
-# 이틀이 지난 데이터를 삭제하는 함수 (이틀이 지나면 그 다음 0시에 삭제됨)
-# def delete_old_sessions():
+# 3일이 지난 데이터를 삭제하는 함수 (3일이 지나면 그 다음 0시에 삭제됨)
+def delete_old_sessions():
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
-            # 이틀 전 날짜 계산
-            two_days_ago = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=2)).strftime('%Y-%m-%d')
+            # 3일 전 날짜 계산
+            three_days_ago = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=3)).strftime('%Y-%m-%d')
             cursor.execute(
                 "DELETE FROM study_session WHERE session_start_time < %s",
-                (two_days_ago,)
+                (three_days_ago,)
             )
             connection.commit()
-            print(f"{two_days_ago} 이전의 데이터를 삭제했습니다.")
+            print(f"{three_days_ago} 이전의 데이터를 삭제했습니다.")
         except Error as e:
             print(f"에러 발생: '{e}'")
             connection.rollback()
@@ -79,7 +79,9 @@ def create_db_connection():
 
 # 스케줄러 설정 :: 실제 한국 시간에 따라 일간/주간 공부순위 안내하는 함수 예약 시 사용
 scheduler = AsyncIOScheduler(timezone="Asia/Seoul")
-# scheduler.add_job(delete_old_sessions, 'cron', hour=0, minute=0)
+
+# 스케줄러에 3일 지난 세션 삭제 작업 추가
+scheduler.add_job(delete_old_sessions, 'cron', hour=0, minute=0)
 
 
 # 자정에 end_study_session_at_midnight 함수 예약
