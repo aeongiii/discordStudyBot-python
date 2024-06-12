@@ -89,68 +89,56 @@ async def schedule_midnight_tasks():
     await end_study_session_at_midnight()
 
 
-# 매일 0시에 결석 체크 + 익일에 탈퇴 처리
-@scheduler.scheduled_job('cron', hour=0, minute=0)
+# 매일 0시에 결석 체크
+@scheduler.scheduled_job('cron', hour=0, minute=0, timezone='Asia/Seoul')
 async def check_absences():
+    print("check_absences 함수 시작")
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
         try:
+            print("데이터베이스 연결 성공")
             # 휴가 또는 출석한 멤버를 제외한 나머지 멤버 찾기
             cursor.execute("""
                 SELECT m.member_id, m.member_nickname
                 FROM member m
-                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE
-                LEFT JOIN study_session s ON m.member_id = s.member_id AND s.session_start_time >= CURRENT_DATE
-                WHERE v.member_id IS NULL AND s.member_id IS NULL
+                LEFT JOIN vacation_log v ON m.member_id = v.member_id AND v.vacation_date = CURRENT_DATE - INTERVAL '1 day'
+                LEFT JOIN activity_log a ON m.member_id = a.member_id AND a.log_date = CURRENT_DATE - INTERVAL '1 day'
+                WHERE v.member_id IS NULL AND a.member_id IS NULL
             """)
             results = cursor.fetchall()
-
+            print(f"결석 멤버 수: {len(results)}")
+            
             if results:
                 for result in results:
                     member_id = result[0]
                     member_nickname = result[1]
+                    print(f"결석 멤버: {member_nickname} (ID: {member_id})")
                     # period_id 조회
                     cursor.execute("SELECT period_id FROM membership_period WHERE member_id = %s AND period_now_active = TRUE", (member_id,))
-                    period_result = cursor.fetchone()
-                    if period_result:
-                        period_id = period_result[0]
-                        await process_absence(member_id, period_id, member_nickname)
+                    period_id = cursor.fetchone()[0]
+                    await process_absence(member_id, period_id, member_nickname)  # period_id 가져와서 사용
 
             # 결석 3회 이상인 멤버 검색
             cursor.execute("""
-                SELECT cp.member_id, m.member_nickname 
-                FROM churn_prediction cp
-                JOIN member m ON cp.member_id = m.member_id
-                WHERE cp.prediction_absence_count >= 3 
-                AND cp.prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
+                SELECT member_id FROM churn_prediction 
+                WHERE prediction_absence_count >= 3 
+                AND prediction_date <= (CURRENT_DATE - INTERVAL '1 day')
             """)
             results = cursor.fetchall()
+            print(f"탈퇴 예정 멤버 수: {len(results)}")
 
             if results:
                 for result in results:
                     member_id = result[0]
-                    member_nickname = result[1]
-                    user = discord.utils.get(client.get_all_members(), id=member_id)
-                    if user:
-                        try:
-                            await user.send(f"{member_nickname}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
-                        except discord.Forbidden:
-                            print(f"DM을 보낼 수 없습니다: {member_nickname}")
-
-            # 익일 0시에 탈퇴 처리
-            await asyncio.sleep(86400)  # 24시간 대기
-            if results:
-                for result in results:
-                    member_id = result[0]
-                    member_nickname = result[1]
                     guild = discord.utils.get(client.guilds, id=1238886734725648496)  # 서버 ID로 서버 객체 가져오기
                     if guild:
                         member = discord.utils.get(guild.members, id=member_id)
                         if member:
                             await guild.kick(member, reason="스터디 조건 미달")
+                            print(f"멤버 [{member.display_name}] 탈퇴 처리 완료")
                         else:
-                            print(f"Member {member_nickname} not found in guild {guild.name}")
+                            print(f"멤버 ID {member_id}를 서버에서 찾을 수 없습니다.")
                     else:
                         print(f"Guild with ID {1238886734725648496} not found")
 
@@ -159,6 +147,7 @@ async def check_absences():
         finally:
             cursor.close()
             connection.close()
+            print("데이터베이스 연결 닫기")
     else:
         print("DB 연결 실패")
 
@@ -843,11 +832,11 @@ async def end_study_session_at_midnight():
 
 # 멤버 결석 처리 함수 -- 결석 시 안내 // 결석 3회 시 안내 후 탈퇴처리 (다이렉트 메세지로)
 async def process_absence(member_id, period_id, member_display_name):
+    print(f"process_absence 시작: 멤버 ID {member_id}, 기간 ID {period_id}")
     connection = create_db_connection()
     if connection:
         cursor = connection.cursor()
-        absence_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d %H:%M:%S')
-
+        absence_date = datetime.now(pytz.timezone('Asia/Seoul')).strftime('%Y-%m-%d')
         try:
             # 현재 결석 일수 가져오기
             cursor.execute(
@@ -855,6 +844,7 @@ async def process_absence(member_id, period_id, member_display_name):
                 (member_id, period_id)
             )
             absence_count = cursor.fetchone()[0] + 1
+            print(f"현재 결석 일수: {absence_count - 1}, 새로운 결석 일수: {absence_count}")
 
             # 결석 기록 추가
             cursor.execute(
@@ -870,6 +860,7 @@ async def process_absence(member_id, period_id, member_display_name):
             if user:
                 try:
                     await user.send(f"{member_display_name}님, 결석이 기록되었습니다. 현재 {absence_count}회 결석하셨습니다.")
+                    print(f"{member_display_name}님에게 결석 알림 전송 완료")
                 except discord.Forbidden:
                     print(f"DM을 보낼 수 없습니다: {member_display_name}")
 
@@ -878,6 +869,7 @@ async def process_absence(member_id, period_id, member_display_name):
                 if user:
                     try:
                         await user.send(f"{member_display_name}님, 3회 결석하였습니다. 익일 탈퇴 처리됩니다. 탈퇴 정보는 본인만 알 수 있으며, 언제든 다시 스터디 참여 가능합니다! 기다리고 있을게요🙆🏻")
+                        print(f"{member_display_name}님에게 탈퇴 예정 알림 전송 완료")
                     except discord.Forbidden:
                         print(f"DM을 보낼 수 없습니다: {member_display_name}")
 
@@ -887,6 +879,7 @@ async def process_absence(member_id, period_id, member_display_name):
         finally:
             cursor.close()
             connection.close()
+            print("데이터베이스 연결 닫기")
     else:
         print("DB 연결 실패")
 
@@ -1114,9 +1107,10 @@ async def on_ready():
         scheduler.start()
 
     # 테스트용 스케줄러 추가
-    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)
-    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
+#    run_date = datetime.now(pytz.timezone('Asia/Seoul')) + timedelta(minutes=1)  # 일일 및 주간 순위 테스트 시 활성화
+#    scheduler.add_job(send_daily_study_ranking, 'date', run_date=run_date) # 일일 순위 1분 후 테스트
 #    scheduler.add_job(send_weekly_study_ranking, 'date', run_date=run_date) # 주간 순위 1분 후 테스트
+    await check_absences()  # 결석 처리 함수 테스트
 
     await start_sessions_for_active_cameras()  # 봇 재시작 후 카메라 상태 확인 및 공부 세션 시작
 
