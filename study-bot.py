@@ -860,7 +860,7 @@ async def process_absence(member_id, period_id, member_display_name):
             print(f"{member_display_name}님의 결석이 기록되었습니다. 결석 일수: {absence_count}")
 
             # 1회, 2회 결석한 경우 - 결석 기록 안내 다이렉트 메시지 전송
-            user = discord.utils.get(client.get_all_members(), id=member_id)
+            user = client.get_user(member_id)
             if user:
                 try:
                     print(f"DM 전송 시도: {member_display_name} ({user.name})")
