@@ -169,6 +169,7 @@ async def send_daily_study_ranking():
         cursor = connection.cursor()
         try:
             yesterday = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=1)).strftime('%Y-%m-%d')
+            display_date = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=1)).strftime('%m/%d')
             print(f"기준 날짜: {yesterday}")
             print("일일 공부 시간 순위 계산을 시작합니다.")
             # 어제 공부한 멤버들의 공부시간 가져오기 (휴가 신청한 멤버도 포함)
@@ -186,7 +187,7 @@ async def send_daily_study_ranking():
             """, (yesterday, yesterday, yesterday))
             results = cursor.fetchall()
             print(f"쿼리 실행 결과: {results}")
-            ranking_message = "@everyone\n======== 일일 공부시간 순위 ========\n"
+            ranking_message = f"@everyone\n======== 일일 공부시간 순위 [{display_date}] ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
                 ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
@@ -231,7 +232,12 @@ async def send_weekly_study_ranking():
                 ORDER BY total_study_time DESC
             """)
             results = cursor.fetchall()
-            ranking_message = "@everyone\n======== 주간 공부시간 순위 ========\n"
+            
+            # 해당하는 주간이 언제부터 언제인지
+            start_date = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=7)).strftime('%m/%d')
+            end_date = (datetime.now(pytz.timezone('Asia/Seoul')) - timedelta(days=1)).strftime('%m/%d')
+            
+            ranking_message = f"@everyone\n======== 주간 공부시간 순위 [{start_date} ~ {end_date}] ========\n"
             for i, (nickname, total_study_time) in enumerate(results, start=1):
                 hours, minutes = divmod(total_study_time, 60)
                 ranking_message += f"{i}등 {nickname} : {hours}시간 {minutes}분\n"
