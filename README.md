@@ -1,4 +1,4 @@
-<img src= "https://capsule-render.vercel.app/api?type=waving&height=300&color=gradient&text=Discord%20Study%20Bot&desc=Discord%20Bot%20for%20Tracking%20Study%20Sessions&descAlign=50&descAlignY=59&descSize=20.1&fontSize=80&section=header&reversal=true&textBg=false&animation=fadeIn&fontAlign=50&fontAlignY=45" />
+<img src= "https://capsule-render.vercel.app/api?type=waving&height=300&color=gradient&text=공부시간%20관리%20시스템&desc=디스코드%20봇과%20웹%20대시보드를%20통한%20학습%20데이터%20관리&descAlign=50&descAlignY=59&descSize=20.1&fontSize=80&section=header&reversal=true&textBg=false&animation=fadeIn&fontAlign=50&fontAlignY=45" />
 
 
 # 💻 프로젝트 목표
@@ -22,25 +22,15 @@
 
 
 # 🛠 기술 스택 & 개발 환경
-<img src="https://img.shields.io/badge/java-007396?style=for-the-badge&logo=java&logoColor=white"> <img src="https://img.shields.io/badge/springboot-6DB33F?style=for-the-badge&logo=spring&logoColor=white">
+<img src="https://img.shields.io/badge/java-007396?style=for-the-badge&logo=java&logoColor=white"> <img src="https://img.shields.io/badge/springboot-6DB33F?style=for-the-badge&logo=spring&logoColor=white"> <img src="https://img.shields.io/badge/python-3776AB?style=for-the-badge&logo=python&logoColor=white"> 
 
-<img src="https://img.shields.io/badge/html5-E34F26?style=for-the-badge&logo=html5&logoColor=white"> <img src="https://img.shields.io/badge/javascript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black"> <img src="https://img.shields.io/badge/css-1572B6?style=for-the-badge&logo=css3&logoColor=white"> <img src="https://img.shields.io/badge/python-3776AB?style=for-the-badge&logo=python&logoColor=white">  
+<img src="https://img.shields.io/badge/html5-E34F26?style=for-the-badge&logo=html5&logoColor=white"> <img src="https://img.shields.io/badge/javascript-F7DF1E?style=for-the-badge&logo=javascript&logoColor=black"> <img src="https://img.shields.io/badge/css-1572B6?style=for-the-badge&logo=css3&logoColor=white"> <img src="https://img.shields.io/badge/bootstrap-7952B3?style=for-the-badge&logo=bootstrap&logoColor=white">
 
-<img src="https://img.shields.io/badge/mysql-4479A1?style=for-the-badge&logo=mysql&logoColor=white"> 
-
-<img src="https://img.shields.io/badge/github-181717?style=for-the-badge&logo=github&logoColor=white"> <img src="https://img.shields.io/badge/git-F05032?style=for-the-badge&logo=git&logoColor=white"> <img src="https://img.shields.io/badge/bootstrap-7952B3?style=for-the-badge&logo=bootstrap&logoColor=white"> <img src="https://img.shields.io/badge/notion-000000?style=for-the-badge&logo=notion&logoColor=white">
-
-<img src="https://img.shields.io/badge/discord.py-7289DA?style=for-the-badge&logo=discord&logoColor=white">
 <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=for-the-badge&logo=postgresql&logoColor=white">
-<img src="https://img.shields.io/badge/Springboot-6DB33F?style=for-the-badge&logo=springboot&logoColor=white">
-<img src="https://img.shields.io/badge/Heroku-430098?style=for-the-badge&logo=heroku&logoColor=white">
 
-- Python: 디스코드 API와 상호작용하는 봇 구현
-- PostgreSQL: 공부 시간 및 멤버 정보 저장
-- APScheduler: 일간/주간 스케줄링 작업 처리
-- dotenv: 봇 토큰 및 데이터베이스 URL 등 민감한 정보 관리
-- Spring Boot: 웹 대시보드 백엔드 개발 중
-- Heroku: 서버 및 PostgreSQL 데이터베이스 호스팅
+<img src="https://img.shields.io/badge/github-181717?style=for-the-badge&logo=github&logoColor=white"> <img src="https://img.shields.io/badge/git-F05032?style=for-the-badge&logo=git&logoColor=white"> <img src="https://img.shields.io/badge/notion-000000?style=for-the-badge&logo=notion&logoColor=white">
+
+<img src="https://img.shields.io/badge/Heroku-430098?style=for-the-badge&logo=heroku&logoColor=white">
 
 
 # ⚙ 주요 기능
