@@ -1,4 +1,4 @@
-<img src= "https://capsule-render.vercel.app/api?type=waving&height=300&color=gradient&text=공부시간%20관리%20시스템&desc=디스코드%20봇과%20웹%20대시보드를%20통한%20학습%20데이터%20관리&descAlign=50&descAlignY=59&descSize=20.1&fontSize=80&section=header&reversal=true&textBg=false&animation=fadeIn&fontAlign=50&fontAlignY=45" />
+<img src= "https://capsule-render.vercel.app/api?type=waving&height=300&color=gradient&text=StudyTime%20Manager&desc=Discord%20Bot%20and%20Web%20Dashboard%20for%20Efficient%20Study%20Tracking&descAlign=50&descAlignY=59&descSize=20.1&fontSize=80&section=header&reversal=true&textBg=false&animation=fadeIn&fontAlign=50&fontAlignY=45" />
 
 
 # 💻 프로젝트 목표
